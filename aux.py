@@ -1,3 +1,4 @@
+### Auxiliary functions for learner to use
 def AUC(soft_predList,labelList):
     """
     Use the probabilities

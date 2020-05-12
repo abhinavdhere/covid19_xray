@@ -1,3 +1,5 @@
+### Primary module. Includes dataloader, trn/val/test functions. Reads
+### options from user and runs training.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
