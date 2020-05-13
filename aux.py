@@ -3,7 +3,40 @@ import torch
 import sklearn.metrics
 import argparse
 import os
+
 ### Auxiliary functions for learner to use
+def get_nBatches(path,process,batchSize):
+    nSamples = len(os.listdir(os.path.join(path,process)))
+    if nSamples%batchSize==0:
+        nBatches = nSamples // batchSize
+    else:
+        nBatches = (nSamples // batchSize) + 1
+    return nBatches
+
+def logMetrics(epochNum,metrics,process,logFile,saveName):
+    '''
+    Print metrics to terminal and save to logfile in a proper format.
+    '''
+    line = 'Epoch num. {epochNum:d} \t {process} Loss : {lossVal:.7f}; {process} Acc : {acc:.3f} ; {process} F1 : {f1:.3f} ; {process} AUROC : {auroc:.3f} ; {process} AUPRC : {auprc:.3f}\n'.format(epochNum=epochNum,process=process,lossVal=metrics.Loss,acc=metrics.Acc,f1=metrics.F1,auroc=metrics.AUROC,auprc=metrics.AUPRC)
+    print(line.strip('\n'))
+    if logFile:
+        with open(os.path.join('logs',logFile),'a') as f:
+            f.write(line)
+    np.savetxt('logs/FprTpr_'+saveName.split('.')[0]+ '.csv',metrics.fpr_tpr_arr, delimiter = ',')
+    np.savetxt('logs/PrecisionRecall_'+saveName.split('.')[0]+ '.csv',metrics.precision_recall_arr, delimiter = ',')
+
+def saveChkpt(bestValRecord,bestVal,metrics,model,saveName):
+    '''
+    Save checkpoint model
+    '''
+    diff = metrics.F1 - bestVal
+    bestVal = metrics.F1
+    with open(os.path.join('logs',bestValRecord),'w') as statusFile:
+        statusFile.write('Best F1 so far: '+str(bestVal))
+    torch.save(model.state_dict(),'chkpt_'+saveName+'.pt')
+    print('Model checkpoint saved since F1 has improved by '+str(diff))
+    return bestVal
+
 def initLogging(saveName):
     '''
     Create files for storing best metric value and logs if not existing already.
@@ -53,9 +86,9 @@ def AUC(soft_predList,labelList):
     precision, recall, threshold = sklearn.metrics.precision_recall_curve(labelList, soft_predList[:,1], pos_label = 1)
     auc_prc = sklearn.metrics.auc(recall,precision)
     #save fpr & tpr for plotting
-    np.savetxt('logs/FprTpr_'+saveName.split('.')[0]+ '.csv',np.array([fpr,tpr]), delimiter = ',')
-    np.savetxt('logs/PrecisionRecall_'+saveName.split('.')[0]+ '.csv',np.array([precision,recall]), delimiter = ',')
-    return auc_roc, auc_prc
+    fpr_tpr_arr = np.array([fpr,tpr])
+    precision_recall_arr = np.array([precision,recall])
+    return auc_roc, auc_prc, fpr_tpr_arr, precision_recall_arr
 
 def globalAcc(predList,labelList):
     '''
@@ -66,5 +99,5 @@ def globalAcc(predList,labelList):
     if not isinstance(labelList,torch.Tensor):
         labelList = torch.cat(labelList)
     #pdb.set_trace()
-    acc = torch.sum(predList==labelList).float()/( predList.shape[0] )
+    acc = torch.sum(predList==labelList[:,0]).float()/( predList.shape[0] )
     return acc
