@@ -7,6 +7,7 @@ import torchvision
 import os
 import numpy as np
 from PIL import Image
+from aux import *
 
 import pdb
 def dataLoader(fPath,dataType,batchSize):
@@ -54,20 +55,23 @@ def runModel(dataLoader,model,optimizer,process,lossWts=(0.6,0.4)):
             t.update()
 
 path = '/home/abhinav/covid19_data_xray'
+parser = getOptions()
+args = parser.parse_args()
 ## Hyperparameters
-nEpochs = 10
-batchSize = 12
-lrVal = 1e-3
-wtDec = 1e-5
-lossWts = (0.8,0.2)
+if args.saveName==None:
+    print("Warning! Savename unspecified. No logging will take place. Model will not be saved.")
+    bestValRecord = None ; logFile = None
+else:
+    bestValRecord, logFile = initLogging(args.saveName)
+lossWts = tuple(map(float,args.lossWeights.split(',')))
 ## Inits
-trnDataLoader = dataLoader(path,'trn',batchSize)
-valDataLoader = dataLoader(path,'val',batchSize)
-tstDataLoader = dataLoader(path,'tst',batchSize)
+trnDataLoader = dataLoader(path,'trn',args.batchSize)
+valDataLoader = dataLoader(path,'val',args.batchSize)
+tstDataLoader = dataLoader(path,'tst',args.batchSize)
 model = torchvision.models.inception_v3(pretrained=False).cuda()
 lossFun = nn.BCELoss(reduction='sum')
-optimizer = torch.optim.Adam(lr=lrVal, weight_decay=wtDec)
+optimizer = torch.optim.Adam(model.parameters(),lr=args.learningRate, weight_decay=args.weightDecay)
 ## Learning
-for epochNum in range(initEpochNum,nEpochs+1):
-    runModel(trnDataLoader,model,optimizer,lossFun,'trn',lossWts)
+# for epochNum in range(args.initEpochNum,args.nEpochs+1):
+#     runModel(trnDataLoader,model,optimizer,lossFun,'trn',lossWts=lossWts,logFile=logFile)
 
