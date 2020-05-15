@@ -25,6 +25,18 @@ def logMetrics(epochNum,metrics,process,logFile,saveName):
     np.savetxt('logs/FprTpr_'+saveName.split('.')[0]+ '.csv',metrics.fpr_tpr_arr, delimiter = ',')
     np.savetxt('logs/PrecisionRecall_'+saveName.split('.')[0]+ '.csv',metrics.precision_recall_arr, delimiter = ',')
 
+def loadModel(loadModelFlag,model,saveName):
+        try:
+            if loadModelFlag=='main':
+                model.load_state_dict(torch.load(saveName+'.pt'))
+            elif loadModelFlag=='chkpt':
+                model.load_state_dict(torch.load('chkpt_'+saveName+'.pt'))
+            successFlag = 1
+        except FileNotFoundError:
+            print('Model does not exist! Aborting...')
+            successFlag = 0
+        return successFlag
+
 def saveChkpt(bestValRecord,bestVal,metrics,model,saveName):
     '''
     Save checkpoint model
@@ -63,6 +75,7 @@ def getOptions():
     parser.add_argument("-wd", "--weightDecay", help="Weight decay for optimizer", type=float, default='1e-5')
     parser.add_argument("-lr", "--learningRate", help="Learning rate", type=float, default='1e-4')
     parser.add_argument("-lwts", "--lossWeights", help="Weights for main and auxiliary loss. Pass as a string in format wt1,wt2 such that wt1+wt2=1", type=str, default='0.8,0.2')
+    parser.add_argument("-loadflg","--loadModelFlag", help="Whether and which model to load. main, chkpt or None (not passed)",type=str)
     return parser
 
 def toCategorical(yArr):

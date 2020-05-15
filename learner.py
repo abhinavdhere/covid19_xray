@@ -17,7 +17,12 @@ from aux import *
 
 import pdb
 def dataLoader(fPath,dataType,batchSize,nBatches):
-    fList = os.listdir(os.path.join(fPath,dataType))
+    dataSetList = ['kg']
+    allFileList = os.listdir(os.path.join(fPath,dataType))
+    fList = []
+    for fName in allFileList:
+        if fName.split('_')[0] in dataSetList:
+            fList.append(fName)
     while True:
         fListShuffled = np.random.permutation(fList)
         dataArr = []
@@ -71,7 +76,7 @@ def runModel(dataLoader,model,optimizer,lossFun,process,batchSize,nBatches,lossW
             runningLoss += loss
             hardPred = torch.argmax(pred,1)
             predList.append(hardPred.cpu())
-            softPredList.append(pred.cpu())
+            softPredList.append(pred.detach().cpu())
             labelList.append(y.cpu())
             t.set_postfix(loss=runningLoss.item()/(float(m+1)*batchSize)) #for tqdm thingy
             t.update()
@@ -94,7 +99,7 @@ def main():
         with open(os.path.join('logs',bestValRecord),'r') as statusFile:
             bestVal = float(statusFile.readline().strip('\n').split()[-1])
     lossWts = tuple(map(float,args.lossWeights.split(',')))
-    ## Inits
+    ## Inits    
     trn_nBatches = get_nBatches(path,'trn',args.batchSize)
     trnDataLoader = dataLoader(path,'trn',args.batchSize,trn_nBatches)
     val_nBatches = get_nBatches(path,'val',args.batchSize)
@@ -103,19 +108,25 @@ def main():
     tstDataLoader = dataLoader(path,'tst',args.batchSize,tst_nBatches)
     model = torchvision.models.inception_v3(pretrained=False,progress=True, num_classes=2, aux_logits=True, init_weights=True).cuda()
     model = nn.DataParallel(model)
+    if args.loadModelFlag:
+        successFlag = loadModel(args.loadModelFlag,model,args.saveName)
+        if successFlag==0:
+            return 0
+        elif successFlag==1:
+            print("Model loaded successfully")
     lossFun = nn.BCELoss(reduction='sum')
     optimizer = torch.optim.Adam(model.parameters(),lr=args.learningRate, weight_decay=args.weightDecay)
     ## Learning
-    for epochNum in range(args.initEpochNum,args.nEpochs+1):
-        trnMetrics = runModel(trnDataLoader,model,optimizer,lossFun,'trn',args.batchSize,lossWts=lossWts)
-        logMetrics(epochNum,trnMetrics,'trn',logFile)
-        torch.save(model.state_dict(),saveName+'.pt')
+    for epochNum in range(args.initEpochNum,args.initEpochNum+args.nEpochs):
+        trnMetrics = runModel(trnDataLoader,model,optimizer,lossFun,'trn',args.batchSize,trn_nBatches,lossWts=lossWts)
+        logMetrics(epochNum,trnMetrics,'trn',logFile,args.saveName)
+        torch.save(model.state_dict(),args.saveName+'.pt')
         valMetrics = runModel(valDataLoader,model,optimizer,lossFun,'val',args.batchSize,val_nBatches,None)
         logMetrics(epochNum,valMetrics,'val',logFile,args.saveName)
         if bestValRecord and valMetrics.F1>bestVal:
             bestVal = saveChkpt(bestValRecord,bestVal,valMetrics,model,args.saveName)
     tstMetrics = runModel(tstDataLoader,model,optimizer,lossFun,'tst',args.batchSize,tst_nBatches,None)
-    logMetrics(epochNum,tstMetrics,'tst',logFile)
+    logMetrics(epochNum,tstMetrics,'tst',logFile,args.saveName)
 
 if __name__=='__main__':
     path = '/home/abhinav/covid19_data_xray'    # dataset path
