@@ -6,6 +6,9 @@ import os
 
 ### Auxiliary functions for learner to use
 def get_nBatches(path,process,batchSize):
+    '''
+    Compute number of batches.
+    '''
     nSamples = len(os.listdir(os.path.join(path,process)))
     if nSamples%batchSize==0:
         nBatches = nSamples // batchSize
@@ -26,16 +29,20 @@ def logMetrics(epochNum,metrics,process,logFile,saveName):
     np.savetxt('logs/PrecisionRecall_'+saveName.split('.')[0]+ '.csv',metrics.precision_recall_arr, delimiter = ',')
 
 def loadModel(loadModelFlag,model,saveName):
-        try:
-            if loadModelFlag=='main':
-                model.load_state_dict(torch.load(saveName+'.pt'))
-            elif loadModelFlag=='chkpt':
-                model.load_state_dict(torch.load('chkpt_'+saveName+'.pt'))
-            successFlag = 1
-        except FileNotFoundError:
-            print('Model does not exist! Aborting...')
-            successFlag = 0
-        return successFlag
+    '''
+    Load saved weights. loadModelFlag: main, chkpt or None.
+    Sends abort signal if saved model does not exist.
+    '''
+    try:
+        if loadModelFlag=='main':
+            model.load_state_dict(torch.load(saveName+'.pt'))
+        elif loadModelFlag=='chkpt':
+            model.load_state_dict(torch.load('chkpt_'+saveName+'.pt'))
+        successFlag = 1
+    except FileNotFoundError:
+        print('Model does not exist! Aborting...')
+        successFlag = 0
+    return successFlag
 
 def saveChkpt(bestValRecord,bestVal,metrics,model,saveName):
     '''
@@ -79,7 +86,9 @@ def getOptions():
     return parser
 
 def toCategorical(yArr):
-# One Hot encoding for softmax
+    '''
+    One Hot encoding for softmax
+    '''
     y_OH = torch.FloatTensor(yArr.shape[0],2)
     y_OH.zero_()
     y_OH.scatter_(1,yArr,1)
@@ -111,6 +120,5 @@ def globalAcc(predList,labelList):
         predList = torch.cat(predList)
     if not isinstance(labelList,torch.Tensor):
         labelList = torch.cat(labelList)
-    #pdb.set_trace()
     acc = torch.sum(predList==labelList[:,0]).float()/( predList.shape[0] )
     return acc
