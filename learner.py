@@ -7,22 +7,17 @@ import torchvision
 from tqdm import tqdm,trange
 
 import os
-from collections import namedtuple
 
 import numpy as np
 import sklearn.metrics
 from PIL import Image
 
 from aux import *
+from myGlobals import *
 
 import pdb
 def dataLoader(fPath,dataType,batchSize,nBatches):
-    dataSetList = ['kg']
-    allFileList = os.listdir(os.path.join(fPath,dataType))
-    fList = []
-    for fName in allFileList:
-        if fName.split('_')[0] in dataSetList:
-            fList.append(fName)
+    fList = getFList(fPath,dataType)
     while True:
         fListShuffled = np.random.permutation(fList)
         dataArr = []
@@ -31,7 +26,7 @@ def dataLoader(fPath,dataType,batchSize,nBatches):
         batchCount = 0
         for fName in fListShuffled:
             img = Image.open(os.path.join(fPath,dataType,fName)).convert('RGB')
-            img = img.resize((360,328),Image.BICUBIC)
+            img = img.resize((imgDims[1],imgDims[0]),Image.BICUBIC)
             nameParts = fName.split('_')
             lbl = int(nameParts[1])
             img = torch.Tensor(np.array(img)).cuda()
@@ -129,6 +124,4 @@ def main():
     logMetrics(epochNum,tstMetrics,'tst',logFile,args.saveName)
 
 if __name__=='__main__':
-    path = '/home/abhinav/covid19_data_xray'    # dataset path
-    Metrics = namedtuple('Metrics',['Loss','Acc','F1','AUROC','AUPRC','fpr_tpr_arr','precision_recall_arr'])
     main()

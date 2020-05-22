@@ -3,13 +3,26 @@ import torch
 import sklearn.metrics
 import argparse
 import os
+from myGlobals import *
 
 ### Auxiliary functions for learner to use
+def getFList(path,process):
+    '''
+    Generate list of files as per process (dataType) and dataset.
+    '''
+    allFileList = os.listdir(os.path.join(path,process))
+    fList = []
+    for fName in allFileList:
+        if fName.split('_')[0] in dataSetList:
+            fList.append(fName)
+    return fList
+
 def get_nBatches(path,process,batchSize):
     '''
     Compute number of batches.
     '''
-    nSamples = len(os.listdir(os.path.join(path,process)))
+    fList = getFList(path,process)
+    nSamples = len(fList)#os.listdir(os.path.join(path,process)))
     if nSamples%batchSize==0:
         nBatches = nSamples // batchSize
     else:
