@@ -36,7 +36,7 @@ def dataLoader(fPath,dataType,batchSize,nBatches):
             labelArr.append(lbl)
             count+=1
             if count==batchSize or ((nBatches-batchCount)==2 and count==(len(fList)%batchSize)):
-                yield torch.stack(dataArr), torch.stack(labelArr)
+                yield torch.stack(dataArr), torch.stack(labelArr), fName
                 batchCount += 1
                 count = 0 ; dataArr = [] ; labelArr = []
 
