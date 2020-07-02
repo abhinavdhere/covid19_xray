@@ -17,12 +17,12 @@ def getFList(path,process):
             fList.append(fName)
     return fList
 
-def get_nBatches(path,process,batchSize):
+def get_nBatches(path,process,batchSize,augFactor):
     '''
     Compute number of batches.
     '''
     fList = getFList(path,process)
-    nSamples = len(fList)#os.listdir(os.path.join(path,process)))
+    nSamples = augFactor*len(fList)#os.listdir(os.path.join(path,process)))
     if nSamples%batchSize==0:
         nBatches = nSamples // batchSize
     else:
@@ -97,6 +97,21 @@ def getOptions():
     parser.add_argument("-lwts", "--lossWeights", help="Weights for main and auxiliary loss. Pass as a string in format wt1,wt2 such that wt1+wt2=1", type=str, default='0.8,0.2')
     parser.add_argument("-loadflg","--loadModelFlag", help="Whether and which model to load. main, chkpt or None (not passed)",type=str)
     return parser
+
+def getClassBalancedWt(beta,samplesPerCls,nClasses=2):
+    '''
+    As per https://towardsdatascience.com/handling-class-imbalanced-data-using-a-loss-specifically-made-for-it-6e58fd65ffab
+    '''
+    effectiveNum = 1.0 - np.power(beta,samplesPerCls)
+    weights = (1.0 - beta) / np.array(effectiveNum)
+    weights = weights / np.sum(weights) * nClasses
+    return torch.Tensor(weights).cuda()
+
+def weightedBCE(weight,pred,target):
+    normVal = 1e-24
+    weights = 1 + (weight-1)*target
+    loss = -((weights*target)*pred.clamp(min=normVal).log()+(1-target)*(1-pred).clamp(min=normVal).log()).sum()
+    return loss
 
 def toCategorical(yArr):
     '''
