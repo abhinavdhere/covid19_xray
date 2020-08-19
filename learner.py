@@ -18,7 +18,8 @@ import cv2
 from aux import *
 from aux import weightedBCE as lossFun
 from myGlobals import *
-from model import inception_v3
+# from model import inception_v3
+from model_simple import BasicNet
 from augmentTools import korniaAffine,  augment_gaussian_noise
 
 
@@ -148,7 +149,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
 
 
 def main():
-    ## Take options and hyperparameters from user
+    # Take options and hyperparameters from user
     parser = getOptions()
     args = parser.parse_args()
     if args.saveName is None:
@@ -168,9 +169,10 @@ def main():
     valDataLoader = dataLoader(path, 'val', args.batchSize, val_nBatches)
     tst_nBatches = get_nBatches(path, 'tst', args.batchSize, 1)
     tstDataLoader = dataLoader(path, 'tst', args.batchSize, tst_nBatches)
-    model = inception_v3(pretrained=False, progress=True,  num_classes=2,
-                         aux_logits=True, init_weights=True).cuda()
+    # model = inception_v3(pretrained=False, progress=True,  num_classes=2,
+    #                      aux_logits=True, init_weights=True).cuda()
     # model = nn.DataParallel(model)
+    model = BasicNet().cuda()
     if args.loadModelFlag:
         successFlag = loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:
