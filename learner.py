@@ -6,6 +6,7 @@ import os
 import pdb
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 # import torchvision
 from tqdm import trange
@@ -19,7 +20,7 @@ from aux import *
 from aux import weightedBCE as lossFun
 from myGlobals import *
 # from model import inception_v3
-from model_simple import BasicNet
+from model_simple import BasicNet2
 from augmentTools import korniaAffine,  augment_gaussian_noise
 
 
@@ -56,15 +57,16 @@ def dataLoader(fPath, dataType, batchSize, nBatches):
         for fName_full in augList:
             fName = '_'.join(fName_full.split('_')[:-1])
             augName = fName_full.split('_')[-1]
+            # import pdb ; pdb.set_trace()
             try:
-                img = cv2.imread(os.path.join(fPath, dataType, fName),
-                                 cv2.IMREAD_ANYDEPTH)
+                img = cv2.imread(os.path.join(fPath, dataType, fName))
+                                 # cv2.IMREAD_ANYDEPTH)
                 # img = io.imread(os.path.join(fPath,dataType,fName))
                 # img = Image.open(os.path.join(fPath,dataType,fName)).convert('RGB')
             except OSError:
                 print(fName)
                 continue
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+            # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
             img = cv2.resize(img, (imgDims[0], imgDims[1]), cv2.INTER_AREA)
             # img = color.gray2rgb(img)
             # img = transform.resize(img, (imgDims[0], imgDims[1]),
@@ -107,21 +109,22 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
             if process == 'trn':
                 optimizer.zero_grad()
                 model.train()
-                pred, auxPred = model.forward(X)
+                # pred, auxPred = model.forward(X)
+                pred = model.forward(X)
                 pred = F.softmax(pred, 1)
-                auxPred = F.softmax(auxPred, 1)
+                # auxPred = F.softmax(auxPred, 1)
                 loss = 0
                 for i in range(2):
                     loss += lossWts[0]*lossFun(classWts[i], pred[:, i],
-                                               yOH[:, i]) +\
-                            lossWts[1]*lossFun(classWts[i], auxPred[:, i],
-                                               yOH[:, i])
+                                               yOH[:, i])  # +\
+                            # lossWts[1]*lossFun(classWts[i], auxPred[:, i],
+                            #                    yOH[:, i])
                 loss.backward()
                 optimizer.step()
             elif process == 'val' or process == 'tst':
                 model.eval()
                 with torch.no_grad():
-                    pred, attn_map = model.forward(X)
+                    pred = model.forward(X)
                     pred = F.softmax(pred, 1)
                     loss = lossFun(classWts[0], pred[:, 0], yOH[:, 0]) +\
                     lossFun(classWts[1], pred[:,  1], yOH[:, 1])
@@ -172,7 +175,8 @@ def main():
     # model = inception_v3(pretrained=False, progress=True,  num_classes=2,
     #                      aux_logits=True, init_weights=True).cuda()
     # model = nn.DataParallel(model)
-    model = BasicNet().cuda()
+    model = BasicNet2().cuda()
+    model = nn.DataParallel(model)
     if args.loadModelFlag:
         successFlag = loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:
@@ -180,8 +184,8 @@ def main():
         elif successFlag == 1:
             print("Model loaded successfully")
     # lossFun = nn.BCELoss(reduction='sum')
-    classWts = getClassBalancedWt(0.9999, [1431, 1431])#[15608,19917])
-    optimizer = torch.optim.Adam(model.parameters(),lr=args.learningRate,
+    classWts = getClassBalancedWt(0.9999, [746,943])#[1431, 1431])#[15608,19917])
+    optimizer = torch.optim.SGD(model.parameters(),lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     ## Learning
     for epochNum in range(args.initEpochNum,args.initEpochNum+args.nEpochs):
