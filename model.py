@@ -29,7 +29,6 @@ class SelfAttentionModule(nn.Module):
         super(SelfAttentionModule, self).__init__()
         self.in_channels = in_channels
         self.gamma = nn.Parameter(torch.zeros(1))
-        print(self.gamma)
         self.conv1 = nn.Conv2d(in_channels, in_channels//8, kernel_size=1)
         self.conv2 = nn.Conv2d(in_channels, in_channels//8, kernel_size=1)
         self.conv3 = nn.Conv2d(in_channels, in_channels, kernel_size=1)
@@ -40,12 +39,15 @@ class SelfAttentionModule(nn.Module):
         out1 = out1.view(-1, self.in_channels//8, x.shape[2]*x.shape[3])
         out2 = out2.view(-1, self.in_channels//8, x.shape[2]*x.shape[3])
         out1 = torch.transpose(out1, 1, 2)
+        out1 = out1/torch.mean(out1)
+        out2 = out2/torch.mean(out2)
         attn_map = F.softmax(torch.bmm(out1, out2), -1)
-        # import pdb ; pdb.set_trace()
         out3 = self.conv3(x)
+        out3 = out3/torch.mean(out3)
         out3 = out3.view(-1, self.in_channels, x.shape[2]*x.shape[3])
-        out = torch.bmm(out3, attn_map)
+        out = torch.bmm(out3, attn_map.permute(0, 2, 1))
         out = out.view(-1, self.in_channels, x.shape[2], x.shape[3])
+        # import pdb ; pdb.set_trace()
         out = out*self.gamma + x
         return out, attn_map
 
@@ -122,10 +124,10 @@ class Inception3(nn.Module):
         self.Conv2d_4a_3x3 = conv_block(80, 192, kernel_size=3)
         self.maxpool2 = nn.MaxPool2d(kernel_size=3, stride=2)
         self.Mixed_5b = inception_a(192, pool_features=32)
+        self.self_attn1 = SelfAttentionModule(256)
         self.Mixed_5c = inception_a(256, pool_features=64)
         self.Mixed_5d = inception_a(288, pool_features=64)
         self.Mixed_6a = inception_b(288)
-        self.self_attn1 = SelfAttentionModule(768)
         self.Mixed_6b = inception_c(768, channels_7x7=128)
         self.Mixed_6c = inception_c(768, channels_7x7=160)
         self.Mixed_6d = inception_c(768, channels_7x7=160)
@@ -179,13 +181,13 @@ class Inception3(nn.Module):
         x = self.maxpool2(x)
         # N x 192 x 35 x 35
         x = self.Mixed_5b(x)
+        x, _ = self.self_attn1(x)
         # N x 256 x 35 x 35
         x = self.Mixed_5c(x)
         # N x 288 x 35 x 35
         x = self.Mixed_5d(x)
         # N x 288 x 35 x 35
         x = self.Mixed_6a(x)
-        x, _ = self.self_attn1(x)
         # N x 768 x 17 x 17
         x = self.Mixed_6b(x)
         # N x 768 x 17 x 17

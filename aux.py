@@ -3,7 +3,7 @@ import torch
 import sklearn.metrics
 import argparse
 import os
-from myGlobals import *
+from myGlobals import dataSetList
 
 
 ''' Auxiliary functions for learner to use '''
@@ -38,7 +38,13 @@ def logMetrics(epochNum, metrics, process, logFile, saveName):
     '''
     Print metrics to terminal and save to logfile in a proper format.
     '''
-    line = 'Epoch num. {epochNum:d} \t {process} Loss : {lossVal:.7f}; {process} Acc : {acc:.3f} ; {process} F1 : {f1:.3f} ; {process} AUROC : {auroc:.3f} ; {process} AUPRC : {auprc:.3f}\n'.format(epochNum=epochNum, process=process, lossVal=metrics.Loss, acc=metrics.Acc, f1=metrics.F1, auroc=metrics.AUROC, auprc=metrics.AUPRC)
+    line = ('Epoch num. {epochNum:d} \t {process} Loss : {lossVal:.7f};'
+            '{process} Acc : {acc:.3f} ; {process} F1 : {f1:.3f} ; '
+            '{process} AUROC : {auroc:.3f} ; {process} AUPRC :'
+            '{auprc:.3f}\n').format(epochNum=epochNum, process=process,
+                                    lossVal=metrics.Loss, acc=metrics.Acc,
+                                    f1=metrics.F1, auroc=metrics.AUROC,
+                                    auprc=metrics.AUPRC)
     print(line.strip('\n'))
     if logFile:
         with open(os.path.join('logs', logFile), 'a') as f:
@@ -99,21 +105,32 @@ def getOptions():
     Set options for argument parser to take hyperparameters.
     '''
     parser = argparse.ArgumentParser()
-    parser.add_argument("--saveName", help="Name by which model will be saved. Names of logging files depend on this",
+    parser.add_argument("--saveName", help="Name by which model will be saved"
+                        "Names of logging files depend on this",
                         type=str)
-    parser.add_argument("--initEpochNum", help="Serial number of starting epoch, for display.", type=int, default=1)
-    parser.add_argument("--nEpochs", help="Number of epochs", type=int, default=10)
+    parser.add_argument("--initEpochNum", help="Serial number of starting"
+                        "epoch, for display.", type=int, default=1)
+    parser.add_argument("--nEpochs", help="Number of epochs", type=int,
+                        default=10)
     parser.add_argument("--batchSize", help="Batch Size", type=int, default=12)
-    parser.add_argument("-wd", "--weightDecay", help="Weight decay for optimizer", type=float, default='1e-5')
-    parser.add_argument("-lr", "--learningRate", help="Learning rate", type=float, default='1e-4')
-    parser.add_argument("-lwts", "--lossWeights", help="Weights for main and auxiliary loss. Pass as a string in format wt1, wt2 such that wt1+wt2=1", type=str, default='0.8, 0.2')
-    parser.add_argument("-loadflg", "--loadModelFlag", help="Whether and which model to load. main, chkpt or None (not passed)", type=str)
+    parser.add_argument("-wd", "--weightDecay", help="Weight decay for"
+                        "optimizer", type=float, default='1e-5')
+    parser.add_argument("-lr", "--learningRate", help="Learning rate",
+                        type=float, default='1e-4')
+    parser.add_argument("-lwts", "--lossWeights", help="Weights for main"
+                        "and auxiliary loss. Pass as a string in format wt1,"
+                        "wt2 such that wt1+wt2=1", type=str,
+                        default='0.8, 0.2')
+    parser.add_argument("-loadflg", "--loadModelFlag", help="Whether and"
+                        "which model to load. main, chkpt or None"
+                        "(not passed)", type=str)
     return parser
 
 
 def getClassBalancedWt(beta, samplesPerCls, nClasses=2):
     '''
-    As per https://towardsdatascience.com/handling-class-imbalanced-data-using-a-loss-specifically-made-for-it-6e58fd65ffab
+    As per https://towardsdatascience.com/handling-class-imbalanced-data-
+    using-a-loss-specifically-made-for-it-6e58fd65ffab
     '''
     effectiveNum = 1.0 - np.power(beta, samplesPerCls)
     weights = (1.0 - beta) / np.array(effectiveNum)
@@ -124,7 +141,8 @@ def getClassBalancedWt(beta, samplesPerCls, nClasses=2):
 def weightedBCE(weight, pred, target):
     normVal = 1e-24
     weights = 1 + (weight-1)*target
-    loss = -((weights*target)*pred.clamp(min=normVal).log()+(1-target)*(1-pred).clamp(min=normVal).log()).sum()
+    loss = -((weights*target)*pred.clamp(min=normVal).log()
+             + (1-target)*(1-pred).clamp(min=normVal).log()).sum()
     return loss
 
 
@@ -151,7 +169,10 @@ def AUC(soft_predList, labelList):
                                                     soft_predList[:, 1],
                                                     pos_label=1)
     auc_roc = sklearn.metrics.auc(fpr, tpr)
-    precision, recall, threshold = sklearn.metrics.precision_recall_curve(labelList, soft_predList[:, 1], pos_label = 1)
+    precision, recall,\
+        threshold = sklearn.metrics.precision_recall_curve(labelList,
+                                                           soft_predList[:, 1],
+                                                           pos_label=1)
     auc_prc = sklearn.metrics.auc(recall, precision)
     # save fpr & tpr for plotting
     fpr_tpr_arr = np.array([fpr, tpr])
