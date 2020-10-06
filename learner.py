@@ -13,15 +13,11 @@ from tqdm import trange
 import numpy as np
 import sklearn.metrics
 import cv2
-# from skimage import io
-# from skimage import transform
-# from skimage import color
 import aux
 from aux import weightedBCE as lossFun
 from myGlobals import path, Metrics, imgDims
 # from model import inception_v3
 from resnet import resnet18
-# from model_simple import BasicNet2
 from augmentTools import korniaAffine,  augment_gaussian_noise
 
 
@@ -62,26 +58,19 @@ def dataLoader(fPath, dataType, batchSize, nBatches):
             try:
                 img = cv2.imread(os.path.join(fPath, dataType, fName),
                                  cv2.IMREAD_ANYDEPTH)
-                # img = io.imread(os.path.join(fPath,dataType,fName))
-                # img = Image.open(os.path.join(fPath,dataType,fName)).convert(
-                # 'RGB')
             except OSError:
                 print(fName)
                 continue
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
             img = cv2.resize(img, (imgDims[0], imgDims[1]), cv2.INTER_AREA)
-            # img = color.gray2rgb(img)
-            # img = transform.resize(img, (imgDims[0], imgDims[1]),
-            #                        preserve_range=True)
-            # img = img.resize((imgDims[1], imgDims[0]), Image.BICUBIC)
-            # img = np.array(img)
             nameParts = fName.split('_')
             lbl = int(nameParts[1])
+            # if lbl > 1:
+            #     lbl = 1
             img = (img - np.mean(img)) / np.std(img)
             img = torch.Tensor(img).cuda()
             img = img.permute(2, 0, 1)
             img = augment(img, augName)
-            # img = ((img - torch.mean(img))/torch.std(img))
             if torch.std(img) == 0 or not torch.isfinite(img).all():
                 pdb.set_trace()
             lbl = torch.Tensor(np.array([lbl])).long()
@@ -157,30 +146,6 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
         return metrics
 
 
-class AttnModel(nn.Module):
-    def __init__(self):
-        super(AttnModel, self).__init__()
-        self.model1 = resnet18(pretrained=False, progress=True,
-                               num_classes=2)
-        self.model2 = resnet18(pretrained=False, progress=True,
-                               num_classes=2)
-        self.model3 = resnet18(pretrained=False, progress=True,
-                               num_classes=2)
-        self.attn_map1 = nn.Parameter(torch.randn((2, imgDims[0], imgDims[1])))
-        self.attn_map2 = nn.Parameter(torch.randn((2, imgDims[0], imgDims[1])))
-        self.attn_map3 = nn.Parameter(torch.randn((2, imgDims[0], imgDims[1])))
-
-    def forward(self, x):
-        x_scale1 = F.interpolate(x, scale_factor=0.75)
-        x_scale2 = F.interpolate(x, scale_factor=1.25)
-        out1 = self.model1(x)
-        out2 = self.model2(x_scale1)
-        out3 = self.model3(x_scale2)
-        out_final = (self.attn_map1*out1 + self.attn_map2*out2
-                     + self.attn_map3*out3)
-        return out_final
-
-
 def main():
     # Take options and hyperparameters from user
     parser = aux.getOptions()
@@ -207,7 +172,7 @@ def main():
     model = resnet18(pretrained=False, progress=True, num_classes=2).cuda()
     # import pdb ; pdb.set_trace()
     # model = AttnModel().cuda()
-    # model = nn.DataParallel(model)
+    model = nn.DataParallel(model)
     # model = BasicNet2().cuda()
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)

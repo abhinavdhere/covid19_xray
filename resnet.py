@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 # from .utils import load_state_dict_from_url
-from model import SelfAttentionModule
+# from model import SelfAttentionModule
 
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
@@ -66,11 +66,12 @@ class BasicBlock(nn.Module):
 
         if self.downsample is not None:
             identity = self.downsample(x)
-
+        attn = torch.sigmoid(out)
+        out_attn = out + attn
         out += identity
         out = self.relu(out)
 
-        return out
+        return out, out_attn
 
 
 class Bottleneck(nn.Module):
@@ -149,16 +150,16 @@ class ResNet(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
-        self.self_attn1 = SelfAttentionModule(64)
-        # self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
-        #                                dilate=replace_stride_with_dilation[0])
-        # self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
-        #                                dilate=replace_stride_with_dilation[1])
-        # self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
-        #                                dilate=replace_stride_with_dilation[2])
+        # self.self_attn1 = SelfAttentionModule(64)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
+                                       dilate=replace_stride_with_dilation[0])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
+                                       dilate=replace_stride_with_dilation[1])
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
+                                       dilate=replace_stride_with_dilation[2])
         self.layer4 = self._make_layer(block, 128, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
-        self.self_attn2 = SelfAttentionModule(128)
+        # self.self_attn2 = SelfAttentionModule(128)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         # self.fc = nn.Linear(512 * block.expansion, num_classes)
         self.fc = nn.Linear(128 * block.expansion, num_classes)
@@ -213,8 +214,8 @@ class ResNet(nn.Module):
 
         x = self.layer1(x)
         # x, _ = self.self_attn1(x)
-        # x = self.layer2(x)
-        # x = self.layer3(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
         x = self.layer4(x)
         # out_attn, _ = self.self_attn2(x)
 

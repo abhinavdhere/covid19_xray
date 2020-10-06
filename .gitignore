@@ -2,3 +2,7 @@
 *.swp
 *.txt
 *.pt
+*.png
+*.npy
+*.csv
+*.h5
