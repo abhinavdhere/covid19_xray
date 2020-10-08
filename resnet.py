@@ -56,7 +56,6 @@ class BasicBlock(nn.Module):
 
     def forward(self, x):
         identity = x
-
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
@@ -66,12 +65,11 @@ class BasicBlock(nn.Module):
 
         if self.downsample is not None:
             identity = self.downsample(x)
-        attn = torch.sigmoid(out)
-        out_attn = out + attn
+
         out += identity
         out = self.relu(out)
 
-        return out, out_attn
+        return out
 
 
 class Bottleneck(nn.Module):
@@ -157,12 +155,8 @@ class ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[1])
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
-        self.layer4 = self._make_layer(block, 128, layers[3], stride=2,
-                                       dilate=replace_stride_with_dilation[2])
-        # self.self_attn2 = SelfAttentionModule(128)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        # self.fc = nn.Linear(512 * block.expansion, num_classes)
-        self.fc = nn.Linear(128 * block.expansion, num_classes)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -223,7 +217,7 @@ class ResNet(nn.Module):
         x = torch.flatten(x, 1)
         x = self.fc(x)
 
-        return x  # , out_attn
+        return x
 
     def forward(self, x):
         return self._forward_impl(x)

@@ -6,18 +6,18 @@ import os
 import pdb
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 # import torchvision
 from tqdm import trange
 import numpy as np
 import sklearn.metrics
 import cv2
+from pytorch_model_summary import summary
 import aux
 from aux import weightedBCE as lossFun
 from myGlobals import path, Metrics, imgDims
-# from model import inception_v3
-from resnet import resnet18
+from model import ResNet
+# from resnet import resnet18
 from augmentTools import korniaAffine,  augment_gaussian_noise
 
 
@@ -61,7 +61,7 @@ def dataLoader(fPath, dataType, batchSize, nBatches):
             except OSError:
                 print(fName)
                 continue
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+            # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
             img = cv2.resize(img, (imgDims[0], imgDims[1]), cv2.INTER_AREA)
             nameParts = fName.split('_')
             lbl = int(nameParts[1])
@@ -102,10 +102,8 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
             if process == 'trn':
                 optimizer.zero_grad()
                 model.train()
-                pdb.set_trace()
                 # pred, auxPred = model.forward(X)
-                pred, _ = model.forward(X)
-                # import pdb; pdb.set_trace()
+                pred = model.forward(X)
                 pred = F.softmax(pred, 1)
                 # auxPred = F.softmax(auxPred, 1)
                 loss = 0
@@ -119,7 +117,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
             elif process == 'val' or process == 'tst':
                 model.eval()
                 with torch.no_grad():
-                    pred, attn_map = model.forward(X)
+                    pred = model.forward(X)
                     pred = F.softmax(pred, 1)
                     loss = (lossFun(classWts[0], pred[:, 0], yOH[:, 0])
                             + lossFun(classWts[1], pred[:,  1], yOH[:, 1]))
@@ -169,10 +167,13 @@ def main():
     tstDataLoader = dataLoader(path, 'tst', args.batchSize, tst_nBatches)
     # model = inception_v3(pretrained=False, progress=True,  num_classes=2,
     #                      aux_logits=True, init_weights=True).cuda()
-    model = resnet18(pretrained=False, progress=True, num_classes=2).cuda()
+    # model = resnet18(pretrained=False, progress=True, num_classes=2).cuda()
+    model = ResNet(in_channels=1, num_blocks=8, num_layers=2,
+                   downsample_freq=2).cuda()
+    # print(summary(model, torch.zeros((args.batchSize, 3, 512, 512)).cuda()))
     # import pdb ; pdb.set_trace()
     # model = AttnModel().cuda()
-    model = nn.DataParallel(model)
+    # model = nn.DataParallel(model)
     # model = BasicNet2().cuda()
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
@@ -182,7 +183,7 @@ def main():
             print("Model loaded successfully")
     # lossFun = nn.BCELoss(reduction='sum')
     # classWts = aux.getClassBalancedWt(0.9999, [810, 754])
-    classWts = aux.getClassBalancedWt(0.9999, [6039, 6039])
+    classWts = aux.getClassBalancedWt(0.9999, [2720, 2703])
     # [1431, 1431])#[15608,19917])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
