@@ -3,7 +3,7 @@ import torch
 import sklearn.metrics
 import argparse
 import os
-from myGlobals import dataSetList
+from config import dataset_list
 
 
 ''' Auxiliary functions for learner to use '''
@@ -16,7 +16,7 @@ def getFList(path, process):
     allFileList = os.listdir(os.path.join(path, process))
     fList = []
     for fName in allFileList:
-        if fName.split('_')[0] in dataSetList:
+        if fName.split('_')[0] in dataset_list:
             fList.append(fName)
     return fList
 
@@ -124,6 +124,9 @@ def getOptions():
     parser.add_argument("-loadflg", "--loadModelFlag", help="Whether and"
                         "which model to load. main, chkpt or None"
                         "(not passed)", type=str)
+    parser.add_argument("--runMode", help="all : trn, val, tst \n trn: train"
+                        "only \n val: val only \n tst: test only", type=str,
+                        default="all")
     return parser
 
 

@@ -13,9 +13,10 @@ import numpy as np
 import sklearn.metrics
 import cv2
 from pytorch_model_summary import summary
+from captum.attr import GuidedGradCam
 import aux
+import config
 from aux import weightedBCE as lossFun
-from myGlobals import path, Metrics, imgDims
 from model import ResNet
 # from resnet import resnet18
 from augmentTools import korniaAffine,  augment_gaussian_noise
@@ -34,6 +35,26 @@ def augment(im, augType):
     return im
 
 
+def preprocess_data(full_name):
+    #     img = cv2.imread(os.path.join(fPath, dataType, fName),
+    #                      cv2.IMREAD_ANYDEPTH)
+    # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+    img = np.load(full_name)
+    img[img < config.window[0]] = config.window[0]
+    img[img > config.window[1]] = config.window[1]
+    img = cv2.resize(img, (config.imgDims[0], config.imgDims[1]),
+                     cv2.INTER_AREA)
+    crop1 = config.crop_params[0]
+    crop2 = config.crop_params[1]
+    center = (img.shape[0]//2, img.shape[1]//2)
+    img = img[center[0]-crop1:center[0]+crop1, center[1]-crop2:center[1]+crop2]
+    img = (img - np.mean(img)) / np.std(img)
+    img = torch.Tensor(img).cuda()
+    # img = img.permute(2, 0, 1)
+    img = img.unsqueeze(0)
+    return img
+
+
 def dataLoader(fPath, dataType, batchSize, nBatches):
     fList = aux.getFList(fPath, dataType)
     if dataType == 'trn':
@@ -44,33 +65,23 @@ def dataLoader(fPath, dataType, batchSize, nBatches):
     for augName in augNames:
         augList += [name+'_'+augName for name in fList]
     while True:
-        augList = np.random.permutation(augList)
+        if dataType == 'trn':
+            augList = np.random.permutation(augList)
         dataArr = []
         labelArr = []
         fNameArr = []
         count = 0
         batchCount = 0
-        # defective = []
         for fName_full in augList:
             fName = '_'.join(fName_full.split('_')[:-1])
             augName = fName_full.split('_')[-1]
-            # import pdb ; pdb.set_trace()
-            try:
-                img = cv2.imread(os.path.join(fPath, dataType, fName),
-                                 cv2.IMREAD_ANYDEPTH)
-            except OSError:
-                print(fName)
-                continue
-            # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-            img = cv2.resize(img, (imgDims[0], imgDims[1]), cv2.INTER_AREA)
             nameParts = fName.split('_')
             lbl = int(nameParts[1])
+            name_w_path = os.path.join(fPath, dataType, fName)
+            img = preprocess_data(name_w_path)
+            img = augment(img, augName)
             # if lbl > 1:
             #     lbl = 1
-            img = (img - np.mean(img)) / np.std(img)
-            img = torch.Tensor(img).cuda()
-            img = img.permute(2, 0, 1)
-            img = augment(img, augName)
             if torch.std(img) == 0 or not torch.isfinite(img).all():
                 pdb.set_trace()
             lbl = torch.Tensor(np.array([lbl])).long()
@@ -94,11 +105,14 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
     predList = []
     labelList = []
     softPredList = []
+    # gc = GuidedGradCam(model, model.avgpool)
     with trange(nBatches, desc=process, ncols=100) as t:
         for m in range(nBatches):
             X, y, fName = dataLoader.__next__()
             yOH = aux.toCategorical(y).cuda()
-            # print(fName)
+            print(fName)
+            # pdb.set_trace()
+            # attribution = gc.attribute(X, 1)
             if process == 'trn':
                 optimizer.zero_grad()
                 model.train()
@@ -134,13 +148,8 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
                                       torch.cat(predList),  labels=None)
         auroc, auprc, fpr_tpr_arr, precision_recall_arr = aux.AUC(softPredList,
                                                                   labelList)
-        metrics = Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
-                          precision_recall_arr)
-        # toSave = torch.cat((torch.cat(predList).unsqueeze(-1),
-        # torch.cat(labelList)), axis=1)
-        # toSave1 = torch.cat((toSave.float(), torch.cat(softPredList)),
-        # axis=1)
-        # np.savetxt('tst_nih_wAug_preds.csv', toSave1.numpy(), delimiter=',')
+        metrics = config.Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
+                                 precision_recall_arr)
         return metrics
 
 
@@ -159,22 +168,17 @@ def main():
             bestVal = float(statusFile.readline().strip('\n').split()[-1])
     lossWts = tuple(map(float, args.lossWeights.split(',')))
     # Inits
-    trn_nBatches = aux.get_nBatches(path, 'trn', args.batchSize, 1)
-    trnDataLoader = dataLoader(path, 'trn', args.batchSize, trn_nBatches)
-    val_nBatches = aux.get_nBatches(path, 'val', args.batchSize, 1)
-    valDataLoader = dataLoader(path, 'val', args.batchSize, val_nBatches)
-    tst_nBatches = aux.get_nBatches(path, 'tst', args.batchSize, 1)
-    tstDataLoader = dataLoader(path, 'tst', args.batchSize, tst_nBatches)
-    # model = inception_v3(pretrained=False, progress=True,  num_classes=2,
-    #                      aux_logits=True, init_weights=True).cuda()
-    # model = resnet18(pretrained=False, progress=True, num_classes=2).cuda()
-    model = ResNet(in_channels=1, num_blocks=8, num_layers=2,
-                   downsample_freq=2).cuda()
-    # print(summary(model, torch.zeros((args.batchSize, 3, 512, 512)).cuda()))
-    # import pdb ; pdb.set_trace()
-    # model = AttnModel().cuda()
-    # model = nn.DataParallel(model)
-    # model = BasicNet2().cuda()
+    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 1)
+    trnDataLoader = dataLoader(config.path, 'trn', args.batchSize,
+                               trn_nBatches)
+    val_nBatches = aux.get_nBatches(config.path, 'val', args.batchSize, 1)
+    valDataLoader = dataLoader(config.path, 'val', args.batchSize,
+                               val_nBatches)
+    tst_nBatches = aux.get_nBatches(config.path, 'tst', args.batchSize, 1)
+    tstDataLoader = dataLoader(config.path, 'tst', args.batchSize,
+                               tst_nBatches)
+    model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
+                   downsample_freq=1).cuda()
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:
@@ -188,27 +192,47 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
-    for epochNum in range(args.initEpochNum, args.initEpochNum+args.nEpochs):
-        trnMetrics = runModel(trnDataLoader, model, optimizer, classWts,
-                              'trn', args.batchSize, trn_nBatches,
-                              lossWts=lossWts)
-        aux.logMetrics(epochNum, trnMetrics, 'trn', logFile, args.saveName)
-        torch.save(model.state_dict(), args.saveName+'.pt')
-    # epochNum = 0
+    if args.runMode == 'all':
+        for epochNum in range(args.initEpochNum, args.initEpochNum+args.nEpochs):
+            trnMetrics = runModel(trnDataLoader, model, optimizer, classWts,
+                                  'trn', args.batchSize, trn_nBatches,
+                                  lossWts=lossWts)
+            aux.logMetrics(epochNum, trnMetrics, 'trn', logFile, args.saveName)
+            torch.save(model.state_dict(), args.saveName+'.pt')
+        # epochNum = 0
+            valMetrics = runModel(valDataLoader, model, optimizer, classWts,
+                                  'val', args.batchSize, val_nBatches, None)
+            aux.logMetrics(epochNum, valMetrics, 'val', logFile, args.saveName)
+            if bestValRecord and valMetrics.AUROC > bestVal:
+                bestVal = aux.saveChkpt(bestValRecord, bestVal, valMetrics,
+                                        model, args.saveName)
+        tstMetrics = runModel(tstDataLoader, model, optimizer, classWts,
+                              'tst', args.batchSize, tst_nBatches, None)
+        aux.logMetrics(epochNum, tstMetrics, 'tst', logFile, args.saveName)
+    elif args.runMode == 'val':
         valMetrics = runModel(valDataLoader, model, optimizer, classWts,
                               'val', args.batchSize, val_nBatches, None)
         aux.logMetrics(epochNum, valMetrics, 'val', logFile, args.saveName)
-        if bestValRecord and valMetrics.AUROC > bestVal:
-            bestVal = aux.saveChkpt(bestValRecord, bestVal, valMetrics, model,
-                                    args.saveName)
-    tstMetrics = runModel(tstDataLoader, model, optimizer, classWts,
-                          'tst', args.batchSize, tst_nBatches, None)
-    aux.logMetrics(epochNum, tstMetrics, 'tst', logFile, args.saveName)
+    elif args.runMode == 'tst':
+        tstMetrics = runModel(tstDataLoader, model, optimizer, classWts,
+                              'tst', args.batchSize, tst_nBatches, None)
+        aux.logMetrics(epochNum, tstMetrics, 'tst', logFile, args.saveName)
+
+
+if __name__ == '__main__':
+    main()
+
+# Graveyard
+    # toSave = torch.cat((torch.cat(predList).unsqueeze(-1),
+    # torch.cat(labelList)), axis=1)
+    # toSave1 = torch.cat((toSave.float(), torch.cat(softPredList)),
+    # axis=1)
+    # np.savetxt('tst_nih_wAug_preds.csv', toSave1.numpy(), delimiter=',')
+    # model = inception_v3(pretrained=False, progress=True,  num_classes=2,
+    #                      aux_logits=True, init_weights=True).cuda()
+    # model = resnet18(pretrained=False, progress=True, num_classes=2).cuda()
     # # for cross dataset testing
     # tstMetrics = runModel(trnDataLoader, model, optimizer, classWts, 'tst',
     # args.batchSize, trn_nBatches, None)
     # logMetrics(0, tstMetrics, 'tst', logFile, args.saveName)
 
-
-if __name__ == '__main__':
-    main()
