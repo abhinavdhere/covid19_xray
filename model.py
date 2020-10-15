@@ -43,16 +43,18 @@ class ResBlock(nn.Module):
         self.conv_block = nn.Sequential(*layers)
 
     def forward(self, x):
+        if isinstance(x, tuple):
+            x = x[0]
         identity = x
         out = self.conv_block(x)
         if self.downsample:
             identity = self.down_conv(identity)
         if self.attention:
-            x = torch.sigmoid(x)
-            x = identity*x
-        out = identity+out
-        out = F.relu(out)
-        return out
+            out = torch.sigmoid(out)
+            out = identity*out
+        res = identity+out
+        res = F.relu(res)
+        return res, out
 
 
 class ResNet(nn.Module):
@@ -73,28 +75,41 @@ class ResNet(nn.Module):
                                stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(num_feats)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        layers = []
+        self.layers = []
         init_feats = num_feats
         downsample = False
         for block_num in range(num_blocks):
             block = ResBlock(init_feats, num_feats, num_layers,
-                             downsample=downsample, attention=False)
+                             downsample=downsample, attention=True)
             init_feats = num_feats
-            layers.append(block)
+            self.layers.append(block.cuda())
             downsample = False
             cond = (block_num + 1 != num_blocks)
             if ((block_num+1) % self.downsample_freq == 0) and cond:
                 num_feats *= 2
                 downsample = True
-        self.main_arch = nn.Sequential(*layers)
+        self.main_arch = nn.Sequential(*self.layers)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.final = nn.Linear(num_feats, num_classes)
+        # self.weights = nn.Parameter(torch.ones(num_blocks, 128, 128)).cuda()
 
     def forward(self, x):
+        # attn_map_list = []
         x = F.relu(self.bn1(self.conv1(x)))
         x = self.maxpool(x)
-        x = self.main_arch(x)
+        # import pdb ; pdb.set_trace()
+        for block in self.main_arch:
+            x, attn_map = block(x)
+            # attn_map = F.interpolate(attn_map, (128, 128),
+            #                          align_corners=False, mode='bilinear')
+            # attn_map, _ = torch.max(attn_map, 1)
+            # attn_map_list.append(attn_map)
+        # x, attn_map = self.main_arch(x)
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         out = self.final(x)
+        # ms_attn = (attn_map_list[0]*self.weights[0]
+        #            + attn_map_list[1]*self.weights[1]
+        #            + attn_map_list[2]*self.weights[2]
+        #            + attn_map_list[3]*self.weights[3])
         return out
