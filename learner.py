@@ -7,13 +7,14 @@ import pdb
 
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 # import torchvision
 from tqdm import trange
 import numpy as np
 import sklearn.metrics
 import cv2
+import pydicom as dcm
 from pytorch_model_summary import summary
-from captum.attr import GuidedGradCam
 import aux
 import config
 from aux import weightedBCE as lossFun
@@ -36,18 +37,18 @@ def augment(im, augType):
 
 
 def preprocess_data(full_name):
-    #     img = cv2.imread(os.path.join(fPath, dataType, fName),
-    #                      cv2.IMREAD_ANYDEPTH)
+    # img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
+    img = dcm.dcmread(full_name).pixel_array
     # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-    img = np.load(full_name)
-    img[img < config.window[0]] = config.window[0]
-    img[img > config.window[1]] = config.window[1]
+    # img = np.load(full_name)
+    # img[img < config.window[0]] = config.window[0]
+    # img[img > config.window[1]] = config.window[1]
     img = cv2.resize(img, (config.imgDims[0], config.imgDims[1]),
                      cv2.INTER_AREA)
-    crop1 = config.crop_params[0]
-    crop2 = config.crop_params[1]
-    center = (img.shape[0]//2, img.shape[1]//2)
-    img = img[center[0]-crop1:center[0]+crop1, center[1]-crop2:center[1]+crop2]
+    # crop1 = config.crop_params[0]
+    # crop2 = config.crop_params[1]
+    # center = (img.shape[0]//2, img.shape[1]//2)
+    # img = img[center[0]-crop1:center[0]+crop1, center[1]-crop2:center[1]+crop2]
     img = (img - np.mean(img)) / np.std(img)
     img = torch.Tensor(img).cuda()
     # img = img.permute(2, 0, 1)
@@ -110,14 +111,14 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
         for m in range(nBatches):
             X, y, fName = dataLoader.__next__()
             yOH = aux.toCategorical(y).cuda()
-            print(fName)
+            # print(fName)
             # pdb.set_trace()
             # attribution = gc.attribute(X, 1)
             if process == 'trn':
                 optimizer.zero_grad()
                 model.train()
                 # pred, auxPred = model.forward(X)
-                pred = model.forward(X)
+                pred, conicity = model.forward(X)
                 pred = F.softmax(pred, 1)
                 # auxPred = F.softmax(auxPred, 1)
                 loss = 0
@@ -126,15 +127,17 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
                                                yOH[:, i])  # +\
                             # lossWts[1]*lossFun(classWts[i], auxPred[:, i],
                             #                    yOH[:, i])
+                loss = lossWts[0]*loss + lossWts[1]*torch.sum(conicity)
                 loss.backward()
                 optimizer.step()
             elif process == 'val' or process == 'tst':
                 model.eval()
                 with torch.no_grad():
-                    pred = model.forward(X)
+                    pred, conicity = model.forward(X)
                     pred = F.softmax(pred, 1)
                     loss = (lossFun(classWts[0], pred[:, 0], yOH[:, 0])
                             + lossFun(classWts[1], pred[:,  1], yOH[:, 1]))
+                    loss = lossWts[0]*loss + lossWts[1]*torch.sum(conicity)
             runningLoss += loss
             hardPred = torch.argmax(pred, 1)
             predList.append(hardPred.cpu())
@@ -179,6 +182,7 @@ def main():
                                tst_nBatches)
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    downsample_freq=1).cuda()
+    # model = nn.DataParallel(model)
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:
@@ -187,8 +191,8 @@ def main():
             print("Model loaded successfully")
     # lossFun = nn.BCELoss(reduction='sum')
     # classWts = aux.getClassBalancedWt(0.9999, [810, 754])
-    classWts = aux.getClassBalancedWt(0.9999, [2720, 2703])
-    # [1431, 1431])#[15608,19917])
+    # classWts = aux.getClassBalancedWt(0.9999, [2720, 2703])
+    classWts = aux.getClassBalancedWt(0.9999, [4810, 4810])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
@@ -201,22 +205,22 @@ def main():
             torch.save(model.state_dict(), args.saveName+'.pt')
         # epochNum = 0
             valMetrics = runModel(valDataLoader, model, optimizer, classWts,
-                                  'val', args.batchSize, val_nBatches, None)
+                                  'val', args.batchSize, val_nBatches, lossWts)
             aux.logMetrics(epochNum, valMetrics, 'val', logFile, args.saveName)
             if bestValRecord and valMetrics.AUROC > bestVal:
                 bestVal = aux.saveChkpt(bestValRecord, bestVal, valMetrics,
                                         model, args.saveName)
         tstMetrics = runModel(tstDataLoader, model, optimizer, classWts,
-                              'tst', args.batchSize, tst_nBatches, None)
+                              'tst', args.batchSize, tst_nBatches, lossWts)
         aux.logMetrics(epochNum, tstMetrics, 'tst', logFile, args.saveName)
     elif args.runMode == 'val':
         valMetrics = runModel(valDataLoader, model, optimizer, classWts,
-                              'val', args.batchSize, val_nBatches, None)
-        aux.logMetrics(epochNum, valMetrics, 'val', logFile, args.saveName)
+                              'val', args.batchSize, val_nBatches, lossWts)
+        aux.logMetrics(1, valMetrics, 'val', logFile, args.saveName)
     elif args.runMode == 'tst':
         tstMetrics = runModel(tstDataLoader, model, optimizer, classWts,
-                              'tst', args.batchSize, tst_nBatches, None)
-        aux.logMetrics(epochNum, tstMetrics, 'tst', logFile, args.saveName)
+                              'tst', args.batchSize, tst_nBatches, lossWts)
+        aux.logMetrics(1, tstMetrics, 'tst', logFile, args.saveName)
 
 
 if __name__ == '__main__':
