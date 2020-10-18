@@ -123,16 +123,19 @@ class ResNet(nn.Module):
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         out = self.final(x)
-        return out #, conicity_sum
+        return out, conicity_sum
 
     def get_conicity(self, attn_map):
         atm = 0
         attn_map = torch.reshape(attn_map, (-1, attn_map.shape[1],
                                             attn_map.shape[2]*attn_map.shape[3]))
-        mean_vec = torch.mean(attn_map, 1)
-        for i in range(attn_map.shape[1]):
-            atm += F.cosine_similarity(attn_map[:, i], mean_vec)
-        conicity = atm.float()/(i+1)
+        # taking each channel as vector
+        mean_vec = torch.mean(attn_map, 1).unsqueeze(1)
+        # for i in range(attn_map.shape[1]):
+        #     atm += F.cosine_similarity(attn_map[:, i], mean_vec)
+        # conicity = atm.float()/(i+1)
+        atm = F.cosine_similarity(attn_map, mean_vec, 2)
+        conicity = torch.mean(atm, 1)
         return conicity
 # # -- Graveyard
 # attn_map, _ = torch.max(attn_map, 1)

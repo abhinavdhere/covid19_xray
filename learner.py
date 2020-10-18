@@ -59,7 +59,7 @@ def preprocess_data(full_name):
 def dataLoader(fPath, dataType, batchSize, nBatches):
     fList = aux.getFList(fPath, dataType)
     if dataType == 'trn':
-        augNames = ['normal']  # , 'rotated', 'gaussNoise', 'mirror']
+        augNames = ['normal', 'rotated', 'gaussNoise', 'mirror']
     else:
         augNames = ['normal']
     augList = []
@@ -171,7 +171,7 @@ def main():
             bestVal = float(statusFile.readline().strip('\n').split()[-1])
     lossWts = tuple(map(float, args.lossWeights.split(',')))
     # Inits
-    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 1)
+    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 4)
     trnDataLoader = dataLoader(config.path, 'trn', args.batchSize,
                                trn_nBatches)
     val_nBatches = aux.get_nBatches(config.path, 'val', args.batchSize, 1)
@@ -182,7 +182,7 @@ def main():
                                tst_nBatches)
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    downsample_freq=1).cuda()
-    # model = nn.DataParallel(model)
+    model = nn.DataParallel(model)
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:

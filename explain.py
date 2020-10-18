@@ -2,7 +2,7 @@ import sys
 import captum.attr
 from captum.attr import visualization as viz
 import torch
-# import torch.nn as nn
+import torch.nn as nn
 import torch.nn.functional as F
 from model import ResNet
 from PIL import Image
@@ -12,8 +12,8 @@ import pandas as pd
 from aux import loadModel, get_nBatches
 from learner import dataLoader
 from config import path
-# import matplotlib.pyplot as plt
-import pdb
+import matplotlib.pyplot as plt
+# import pdb
 
 
 def load_BB(fName, img):
@@ -35,9 +35,10 @@ val_nBatches = get_nBatches(path, 'val', 1, 1)
 valDataLoader = dataLoader(path, 'val', 1, val_nBatches)
 model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                downsample_freq=1).cuda()
-# model = nn.DataParallel(model)
+model = nn.DataParallel(model)
 model_name = sys.argv[1]
-successFlag = loadModel('chkpt', model, model_name)
+folder_name = sys.argv[2]
+successFlag = loadModel('main', model, model_name)
 get_bb_flag = True
 model.eval()
 for i in range(val_nBatches):
@@ -46,10 +47,10 @@ for i in range(val_nBatches):
         pred = model.forward(X)
         pred = F.softmax(pred, 1)
     if y.item() == 1 and torch.argmax(pred).item() == 1:
-        pdb.set_trace()
+        # pdb.set_trace()
         # gcObj = captum.attr.LayerGradCam(model.forward, model.main_arch[3]
         #                                  .conv_block[10])
-        gcObj = captum.attr.LayerGradCam(model.forward, model.semifinal)
+        gcObj = captum.attr.LayerGradCam(model.forward, model.module.semifinal)
         attr = gcObj.attribute(X, 1)
         attrRescaled = Image.fromarray(attr.detach().cpu()
                                        .numpy()[0, 0, :, :]).resize(
@@ -62,8 +63,9 @@ for i in range(val_nBatches):
                                           cmap='jet', sign="absolute_value",
                                           show_colorbar=True,
                                           title="Overlayed Attributions")
-        pltObj[0].savefig('./gradcam_res/gradCam'+fName[0].split('.')[0]
-                          + '.png')
+        pltObj[0].savefig('./gradcam_res/'+folder_name+'/gradCam_'
+                          + fName[0].split('.')[0] + '.png')
+        plt.close()
         # plt.imshow(X.permute(0,2,3,1)[0,:,:,:].detach().cpu().numpy()
         # .astype('uint8'))
         # plt.show()
