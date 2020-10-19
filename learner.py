@@ -37,8 +37,8 @@ def augment(im, augType):
 
 
 def preprocess_data(full_name):
-    # img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
-    img = dcm.dcmread(full_name).pixel_array
+    img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
+    # img = dcm.dcmread(full_name).pixel_array
     # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
     # img = np.load(full_name)
     # img[img < config.window[0]] = config.window[0]
@@ -122,11 +122,10 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
                 pred = F.softmax(pred, 1)
                 # auxPred = F.softmax(auxPred, 1)
                 loss = 0
-                for i in range(2):
-                    loss += lossWts[0]*lossFun(classWts[i], pred[:, i],
-                                               yOH[:, i])  # +\
-                            # lossWts[1]*lossFun(classWts[i], auxPred[:, i],
-                            #                    yOH[:, i])
+                for i in range(3):
+                    loss += lossFun(classWts[i], pred[:, i], yOH[:, i])
+                    # lossWts[1]*lossFun(classWts[i], auxPred[:, i],
+                    #                    yOH[:, i])
                 loss = lossWts[0]*loss + lossWts[1]*torch.sum(conicity)
                 loss.backward()
                 optimizer.step()
@@ -135,8 +134,10 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
                 with torch.no_grad():
                     pred, conicity = model.forward(X)
                     pred = F.softmax(pred, 1)
-                    loss = (lossFun(classWts[0], pred[:, 0], yOH[:, 0])
-                            + lossFun(classWts[1], pred[:,  1], yOH[:, 1]))
+                    for i in range(3):
+                        loss += lossFun(classWts[i], pred[:, i], yOH[:, i])
+                    # loss = (lossFun(classWts[0], pred[:, 0], yOH[:, 0])
+                    #         + lossFun(classWts[1], pred[:,  1], yOH[:, 1]))
                     loss = lossWts[0]*loss + lossWts[1]*torch.sum(conicity)
             runningLoss += loss
             hardPred = torch.argmax(pred, 1)
@@ -192,7 +193,7 @@ def main():
     # lossFun = nn.BCELoss(reduction='sum')
     # classWts = aux.getClassBalancedWt(0.9999, [810, 754])
     # classWts = aux.getClassBalancedWt(0.9999, [2720, 2703])
-    classWts = aux.getClassBalancedWt(0.9999, [4810, 4810])
+    classWts = aux.getClassBalancedWt(0.9999, [7081, 4854, 485])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning

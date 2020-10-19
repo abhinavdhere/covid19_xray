@@ -76,12 +76,12 @@ def saveChkpt(bestValRecord, bestVal, metrics, model, saveName):
     '''
     Save checkpoint model
     '''
-    diff = metrics.AUROC - bestVal
-    bestVal = metrics.AUROC
+    diff = metrics.Acc - bestVal
+    bestVal = metrics.Acc
     with open(os.path.join('logs', bestValRecord), 'w') as statusFile:
-        statusFile.write('Best AUROC so far: '+str(bestVal))
+        statusFile.write('Best Accuracy so far: '+str(bestVal))
     torch.save(model.state_dict(), 'chkpt_'+saveName+'.pt')
-    print('Model checkpoint saved since AUROC has improved by '+str(diff))
+    print('Model checkpoint saved since Accuracy has improved by '+str(diff))
     return bestVal
 
 

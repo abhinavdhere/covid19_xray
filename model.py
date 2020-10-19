@@ -62,6 +62,7 @@ class ResBlock(nn.Module):
         res = F.relu(res)
         return res, out
 
+
 class ResNet(nn.Module):
     def __init__(self, in_channels, num_blocks, num_layers, num_classes=2,
                  num_feats=64, downsample_freq=1):
@@ -128,7 +129,8 @@ class ResNet(nn.Module):
     def get_conicity(self, attn_map):
         atm = 0
         attn_map = torch.reshape(attn_map, (-1, attn_map.shape[1],
-                                            attn_map.shape[2]*attn_map.shape[3]))
+                                            attn_map.shape[2]
+                                            * attn_map.shape[3]))
         # taking each channel as vector
         mean_vec = torch.mean(attn_map, 1).unsqueeze(1)
         # for i in range(attn_map.shape[1]):
@@ -144,4 +146,3 @@ class ResNet(nn.Module):
 #         for i in range(len(1, stacked_attn_map)):
 #             stacked_attn_map = torch.cat((stacked_attn_map,
 #                                           attn_map_list[i]), 1)
-
