@@ -78,6 +78,8 @@ def dataLoader(fPath, dataType, batchSize, nBatches):
             augName = fName_full.split('_')[-1]
             nameParts = fName.split('_')
             lbl = int(nameParts[1])
+            if lbl > 0:
+                lbl = 1
             name_w_path = os.path.join(fPath, dataType, fName)
             img = preprocess_data(name_w_path)
             img = augment(img, augName)
@@ -122,7 +124,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
                 pred = F.softmax(pred, 1)
                 # auxPred = F.softmax(auxPred, 1)
                 loss = 0
-                for i in range(3):
+                for i in range(2):
                     loss += lossFun(classWts[i], pred[:, i], yOH[:, i])
                     # lossWts[1]*lossFun(classWts[i], auxPred[:, i],
                     #                    yOH[:, i])
@@ -134,7 +136,8 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
                 with torch.no_grad():
                     pred, conicity = model.forward(X)
                     pred = F.softmax(pred, 1)
-                    for i in range(3):
+                    loss = 0
+                    for i in range(2):
                         loss += lossFun(classWts[i], pred[:, i], yOH[:, i])
                     # loss = (lossFun(classWts[0], pred[:, 0], yOH[:, 0])
                     #         + lossFun(classWts[1], pred[:,  1], yOH[:, 1]))
@@ -149,11 +152,13 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
         finalLoss = runningLoss/(float(m+1)*batchSize)
         acc = aux.globalAcc(predList, labelList)
         f1 = sklearn.metrics.f1_score(torch.cat(labelList),
-                                      torch.cat(predList),  labels=None)
+                                      torch.cat(predList),  labels=None,
+                                      average='binary')
         auroc, auprc, fpr_tpr_arr, precision_recall_arr = aux.AUC(softPredList,
                                                                   labelList)
         metrics = config.Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
                                  precision_recall_arr)
+        # metrics = config.Metrics(finalLoss, acc, f1, 0, 0, None, None)
         return metrics
 
 
@@ -182,7 +187,7 @@ def main():
     tstDataLoader = dataLoader(config.path, 'tst', args.batchSize,
                                tst_nBatches)
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
-                   downsample_freq=1).cuda()
+                   num_classes=2, downsample_freq=1).cuda()
     model = nn.DataParallel(model)
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
@@ -193,7 +198,8 @@ def main():
     # lossFun = nn.BCELoss(reduction='sum')
     # classWts = aux.getClassBalancedWt(0.9999, [810, 754])
     # classWts = aux.getClassBalancedWt(0.9999, [2720, 2703])
-    classWts = aux.getClassBalancedWt(0.9999, [7081, 4854, 485])
+    # classWts = aux.getClassBalancedWt(0.9999, [7081, 4854, 485])
+    classWts = aux.getClassBalancedWt(0.9999, [7081, 4854+485])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
@@ -208,7 +214,7 @@ def main():
             valMetrics = runModel(valDataLoader, model, optimizer, classWts,
                                   'val', args.batchSize, val_nBatches, lossWts)
             aux.logMetrics(epochNum, valMetrics, 'val', logFile, args.saveName)
-            if bestValRecord and valMetrics.AUROC > bestVal:
+            if bestValRecord and valMetrics.F1 > bestVal:
                 bestVal = aux.saveChkpt(bestValRecord, bestVal, valMetrics,
                                         model, args.saveName)
         tstMetrics = runModel(tstDataLoader, model, optimizer, classWts,

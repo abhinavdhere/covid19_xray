@@ -49,10 +49,10 @@ def logMetrics(epochNum, metrics, process, logFile, saveName):
     if logFile:
         with open(os.path.join('logs', logFile), 'a') as f:
             f.write(line)
-    np.savetxt('logs/FprTpr_'+saveName.split('.')[0] + '.csv',
-               metrics.fpr_tpr_arr, delimiter=', ')
-    np.savetxt('logs/PrecisionRecall_'+saveName.split('.')[0] + '.csv',
-               metrics.precision_recall_arr, delimiter=', ')
+    # np.savetxt('logs/FprTpr_'+saveName.split('.')[0] + '.csv',
+    #            metrics.fpr_tpr_arr, delimiter=', ')
+    # np.savetxt('logs/PrecisionRecall_'+saveName.split('.')[0] + '.csv',
+    #            metrics.precision_recall_arr, delimiter=', ')
 
 
 def loadModel(loadModelFlag, model, saveName):
@@ -76,12 +76,12 @@ def saveChkpt(bestValRecord, bestVal, metrics, model, saveName):
     '''
     Save checkpoint model
     '''
-    diff = metrics.Acc - bestVal
-    bestVal = metrics.Acc
+    diff = metrics.F1 - bestVal
+    bestVal = metrics.F1
     with open(os.path.join('logs', bestValRecord), 'w') as statusFile:
-        statusFile.write('Best Accuracy so far: '+str(bestVal))
+        statusFile.write('Best F1 so far: '+str(bestVal))
     torch.save(model.state_dict(), 'chkpt_'+saveName+'.pt')
-    print('Model checkpoint saved since Accuracy has improved by '+str(diff))
+    print('Model checkpoint saved since F1 has improved by '+str(diff))
     return bestVal
 
 
