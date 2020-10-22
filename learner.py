@@ -13,8 +13,8 @@ from tqdm import trange
 import numpy as np
 import sklearn.metrics
 import cv2
-import pydicom as dcm
-from pytorch_model_summary import summary
+# import pydicom as dcm
+# from pytorch_model_summary import summary
 import aux
 import config
 from aux import weightedBCE as lossFun
@@ -48,7 +48,8 @@ def preprocess_data(full_name):
     # crop1 = config.crop_params[0]
     # crop2 = config.crop_params[1]
     # center = (img.shape[0]//2, img.shape[1]//2)
-    # img = img[center[0]-crop1:center[0]+crop1, center[1]-crop2:center[1]+crop2]
+    # img = img[center[0]-crop1:center[0]+crop1,
+    # center[1]-crop2:center[1]+crop2]
     img = (img - np.mean(img)) / np.std(img)
     img = torch.Tensor(img).cuda()
     # img = img.permute(2, 0, 1)
@@ -58,16 +59,22 @@ def preprocess_data(full_name):
 
 def dataLoader(fPath, dataType, batchSize, nBatches):
     fList = aux.getFList(fPath, dataType)
-    if dataType == 'trn':
-        augNames = ['normal', 'rotated', 'gaussNoise', 'mirror']
-    else:
-        augNames = ['normal']
+    augNames = ['normal', 'rotated', 'gaussNoise', 'mirror']
     augList = []
-    for augName in augNames:
-        augList += [name+'_'+augName for name in fList]
+    # for augName in augNames:
+    #     augList += [name+'_'+augName for name in fList]
     while True:
+        pdb.set_trace()
         if dataType == 'trn':
+            for name in fList:
+                if int(name.split('_')[1]) == 2:
+                    augList += [name+'_'+augName for augName in augNames]
+                else:
+                    augName = np.random.choice(augNames)
+                    augList.append(name+'_'+augName)
             augList = np.random.permutation(augList)
+        else:
+            augList += [name+'_normal' for name in fList]
         dataArr = []
         labelArr = []
         fNameArr = []
@@ -78,8 +85,10 @@ def dataLoader(fPath, dataType, batchSize, nBatches):
             augName = fName_full.split('_')[-1]
             nameParts = fName.split('_')
             lbl = int(nameParts[1])
-            if lbl > 0:
-                lbl = 1
+            if lbl == 0:
+                # lbl = 1
+                continue
+            lbl -= 1
             name_w_path = os.path.join(fPath, dataType, fName)
             img = preprocess_data(name_w_path)
             img = augment(img, augName)
@@ -96,7 +105,7 @@ def dataLoader(fPath, dataType, batchSize, nBatches):
                                       count == (len(fList) % batchSize)):
                 yield torch.stack(dataArr),  torch.stack(labelArr), fNameArr
                 batchCount += 1
-                count = 0 ; dataArr = [] ; labelArr = []; fNameArr = []
+                count, dataArr, labelArr, fNameArr = 0, [], [], []
 
 
 def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
@@ -108,6 +117,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
     predList = []
     labelList = []
     softPredList = []
+    find_optimal_threshold = False
     # gc = GuidedGradCam(model, model.avgpool)
     with trange(nBatches, desc=process, ncols=100) as t:
         for m in range(nBatches):
@@ -144,6 +154,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
                     loss = lossWts[0]*loss + lossWts[1]*torch.sum(conicity)
             runningLoss += loss
             hardPred = torch.argmax(pred, 1)
+            # hardPred = (pred[:, 1] > 0.54948).int()
             predList.append(hardPred.cpu())
             softPredList.append(pred.detach().cpu())
             labelList.append(y.cpu())
@@ -156,8 +167,19 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
                                       average='binary')
         auroc, auprc, fpr_tpr_arr, precision_recall_arr = aux.AUC(softPredList,
                                                                   labelList)
+        if find_optimal_threshold and process == 'val':
+            softPredList = np.concatenate(softPredList, 0)
+            labelList = np.concatenate(labelList, 0)
+            fpr, tpr, thresholds = sklearn.metrics.roc_curve(labelList,
+                                                             softPredList[:,
+                                                                          1],
+                                                             pos_label=1)
+            optimal_idx = np.argmax(tpr - fpr)
+            optimal_threshold = thresholds[optimal_idx]
+            print("Threshold value is:", optimal_threshold)
         metrics = config.Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
                                  precision_recall_arr)
+        # print(metrics.Acc, metrics.F1)
         # metrics = config.Metrics(finalLoss, acc, f1, 0, 0, None, None)
         return metrics
 
@@ -177,7 +199,8 @@ def main():
             bestVal = float(statusFile.readline().strip('\n').split()[-1])
     lossWts = tuple(map(float, args.lossWeights.split(',')))
     # Inits
-    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 4)
+    # trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 4)
+    trn_nBatches = 850
     trnDataLoader = dataLoader(config.path, 'trn', args.batchSize,
                                trn_nBatches)
     val_nBatches = aux.get_nBatches(config.path, 'val', args.batchSize, 1)
@@ -199,12 +222,13 @@ def main():
     # classWts = aux.getClassBalancedWt(0.9999, [810, 754])
     # classWts = aux.getClassBalancedWt(0.9999, [2720, 2703])
     # classWts = aux.getClassBalancedWt(0.9999, [7081, 4854, 485])
-    classWts = aux.getClassBalancedWt(0.9999, [7081, 4854+485])
+    classWts = aux.getClassBalancedWt(0.9999, [4854, 485])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
     if args.runMode == 'all':
-        for epochNum in range(args.initEpochNum, args.initEpochNum+args.nEpochs):
+        for epochNum in range(args.initEpochNum, args.initEpochNum
+                              + args.nEpochs):
             trnMetrics = runModel(trnDataLoader, model, optimizer, classWts,
                                   'trn', args.batchSize, trn_nBatches,
                                   lossWts=lossWts)
@@ -223,7 +247,7 @@ def main():
     elif args.runMode == 'val':
         valMetrics = runModel(valDataLoader, model, optimizer, classWts,
                               'val', args.batchSize, val_nBatches, lossWts)
-        aux.logMetrics(1, valMetrics, 'val', logFile, args.saveName)
+        # aux.logMetrics(1, valMetrics, 'val', logFile, args.saveName)
     elif args.runMode == 'tst':
         tstMetrics = runModel(tstDataLoader, model, optimizer, classWts,
                               'tst', args.batchSize, tst_nBatches, lossWts)
@@ -246,4 +270,3 @@ if __name__ == '__main__':
     # tstMetrics = runModel(trnDataLoader, model, optimizer, classWts, 'tst',
     # args.batchSize, trn_nBatches, None)
     # logMetrics(0, tstMetrics, 'tst', logFile, args.saveName)
-
