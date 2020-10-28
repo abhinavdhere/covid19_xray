@@ -58,23 +58,33 @@ def preprocess_data(full_name):
 
 
 def dataLoader(fPath, dataType, batchSize, nBatches):
+    undersample = True
+    sample_size = 2000
     fList = aux.getFList(fPath, dataType)
     augNames = ['normal', 'rotated', 'gaussNoise', 'mirror']
-    augList = []
     # for augName in augNames:
     #     augList += [name+'_'+augName for name in fList]
     while True:
-        pdb.set_trace()
+        augList_classA = []
+        augList_classB = []
+        augList = []
         if dataType == 'trn':
             for name in fList:
                 if int(name.split('_')[1]) == 2:
-                    augList += [name+'_'+augName for augName in augNames]
+                    augList_classA += [name+'_'+augName for augName in
+                                       augNames]
                 else:
                     augName = np.random.choice(augNames)
-                    augList.append(name+'_'+augName)
+                    augList_classB.append(name+'_'+augName)
+            if undersample:
+                augList_classB = np.random.choice(augList_classB,
+                                                  (sample_size,),
+                                                  replace=False)
+            augList = augList_classA + augList_classB.tolist()
             augList = np.random.permutation(augList)
         else:
             augList += [name+'_normal' for name in fList]
+        # print(len(augList))
         dataArr = []
         labelArr = []
         fNameArr = []
@@ -117,7 +127,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
     predList = []
     labelList = []
     softPredList = []
-    find_optimal_threshold = False
+    find_optimal_threshold = True
     # gc = GuidedGradCam(model, model.avgpool)
     with trange(nBatches, desc=process, ncols=100) as t:
         for m in range(nBatches):
@@ -155,6 +165,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
             runningLoss += loss
             hardPred = torch.argmax(pred, 1)
             # hardPred = (pred[:, 1] > 0.54948).int()
+            # hardPred = (pred[:, 1] > 0.00415).int()
             predList.append(hardPred.cpu())
             softPredList.append(pred.detach().cpu())
             labelList.append(y.cpu())
@@ -179,9 +190,39 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
             print("Threshold value is:", optimal_threshold)
         metrics = config.Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
                                  precision_recall_arr)
-        # print(metrics.Acc, metrics.F1)
+        print(metrics.Acc, metrics.F1)
         # metrics = config.Metrics(finalLoss, acc, f1, 0, 0, None, None)
         return metrics
+
+
+def two_stage_inference(dataLoader, model1, model2, nBatches):
+    predList = []
+    labelList = []
+    softPredList = []
+    for m in range(nBatches):
+        X, y, fName = dataLoader.__next__()
+        # yOH = aux.toCategorical(y).cuda()
+        pred, conicity = model1.forward(X)
+        pred = F.softmax(pred, 1)
+        hardPred = torch.argmax(pred, 1)
+        if hardPred[0]:
+            pred, _ = model2.forward(X)
+            pred = F.softmax(pred, 1)
+            hardPred = torch.argmax(pred, 1)
+            hardPred += 1
+        predList.append(hardPred.cpu())
+        softPredList.append(pred.detach().cpu())
+        labelList.append(y.cpu())
+    acc = aux.globalAcc(predList, labelList)
+    f1 = sklearn.metrics.f1_score(torch.cat(labelList),
+                                  torch.cat(predList),  labels=None,
+                                  average='macro')
+    print(acc, f1)
+    # auroc, auprc, fpr_tpr_arr, precision_recall_arr = aux.AUC(softPredList,
+    #                                                           labelList)
+    # metrics = config.Metrics(0, acc, f1, auroc, auprc, fpr_tpr_arr,
+    #                          precision_recall_arr)
+    # return metrics
 
 
 def main():
@@ -200,7 +241,7 @@ def main():
     lossWts = tuple(map(float, args.lossWeights.split(',')))
     # Inits
     # trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 4)
-    trn_nBatches = 850
+    trn_nBatches = 492  # 849
     trnDataLoader = dataLoader(config.path, 'trn', args.batchSize,
                                trn_nBatches)
     val_nBatches = aux.get_nBatches(config.path, 'val', args.batchSize, 1)
@@ -212,6 +253,17 @@ def main():
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    num_classes=2, downsample_freq=1).cuda()
     model = nn.DataParallel(model)
+    # model_stage1 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
+    #                       num_classes=2, downsample_freq=1).cuda()
+    # model_stage1 = nn.DataParallel(model_stage1)
+    # model_stage2 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
+    #                       num_classes=2, downsample_freq=1).cuda()
+    # model_stage2 = nn.DataParallel(model_stage2)
+    # aux.loadModel('chkpt', model_stage1, ('attn_multiScale_channelsStacked_'
+    #               'conicity_resnet_covidx_wAug_stage1_rerun'))
+    # aux.loadModel('chkpt', model_stage2, ('attn_multiScale_channelsStacked_'
+    #                                       'conicity_resnet_covidx_wAug_'
+    #                                       'undersample_stage2'))
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:
@@ -221,7 +273,7 @@ def main():
     # lossFun = nn.BCELoss(reduction='sum')
     # classWts = aux.getClassBalancedWt(0.9999, [810, 754])
     # classWts = aux.getClassBalancedWt(0.9999, [2720, 2703])
-    # classWts = aux.getClassBalancedWt(0.9999, [7081, 4854, 485])
+    # classWts = aux.getClassBalancedWt(0.9999, [7081, 4854+485])
     classWts = aux.getClassBalancedWt(0.9999, [4854, 485])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
@@ -247,11 +299,16 @@ def main():
     elif args.runMode == 'val':
         valMetrics = runModel(valDataLoader, model, optimizer, classWts,
                               'val', args.batchSize, val_nBatches, lossWts)
-        # aux.logMetrics(1, valMetrics, 'val', logFile, args.saveName)
+        aux.logMetrics(1, valMetrics, 'val', logFile, args.saveName)
     elif args.runMode == 'tst':
         tstMetrics = runModel(tstDataLoader, model, optimizer, classWts,
                               'tst', args.batchSize, tst_nBatches, lossWts)
         aux.logMetrics(1, tstMetrics, 'tst', logFile, args.saveName)
+    elif args.runMode == 'two_stage_inference':
+        two_stage_inference(valDataLoader, model_stage1,
+                            model_stage2, val_nBatches)
+        two_stage_inference(tstDataLoader, model_stage1,
+                            model_stage2, tst_nBatches)
 
 
 if __name__ == '__main__':
