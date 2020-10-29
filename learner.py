@@ -99,7 +99,7 @@ def dataLoader(fPath, dataType, batchSize, nBatches):
                 # lbl = 1
                 continue
             lbl -= 1
-            name_w_path = os.path.join(fPath, dataType, fName)
+            name_w_path = os.path.join(fPath, fName)
             img = preprocess_data(name_w_path)
             img = augment(img, augName)
             # if lbl > 1:

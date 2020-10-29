@@ -13,7 +13,10 @@ def getFList(path, process):
     '''
     Generate list of files as per process (dataType) and dataset.
     '''
-    allFileList = os.listdir(os.path.join(path, process))
+    # allFileList = os.listdir(os.path.join(path, process))
+    allFileList = np.loadtxt(os.path.join(path, 'file_lists',
+                                          process+'_list.txt'),
+                             delimiter='\n', dtype=str)
     fList = []
     for fName in allFileList:
         if fName.split('_')[0] in dataset_list:
