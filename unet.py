@@ -31,21 +31,23 @@ class UNet(nn.Module):
             pretrained = True
         else:
             pretrained = False
-        backbone_model = available_models[backbone](pretrained,
-                                                    num_classes=n_classes)
+        backbone_model = available_models[backbone](pretrained)
         self.encoder = nn.Sequential(*list(backbone_model.children())[:-2])
         self.decoder = Decoder(n_classes)
 
     def setup_hooks(self):
         self.int_outputs = []
+        self.hooks = []
 
         def hook(module, input, output):
             self.int_outputs.append(output)
-
-        encoder_layers = [self.encoder.layer3, self.encoder.layer2,
-                          self.encoder.layer1]
+        # encoder_layers = [self.encoder.layer3,
+        #                   self.encoder.layer2,
+        #                   self.encoder.layer1]
+        encoder_layers = [self.encoder[6], self.encoder[5], self.encoder[4]]
         for layer in encoder_layers:
-            layer.register_forward_hook(hook)
+            hookObj = layer.register_forward_hook(hook)
+            self.hooks.append(hookObj)
 
     def forward(self, x):
         self.setup_hooks()
@@ -54,28 +56,36 @@ class UNet(nn.Module):
         self.int_outputs = []
         out = self.decoder(out_layer4, out_layer3, out_layer2,
                            out_layer1)
+        for hookObj in self.hooks:
+            hookObj.remove()
         return out
 
 
 class Decoder(nn.Module):
     def __init__(self, nClasses):
-        self.up_conv1 = nn.ConvTranspose2d(512, 512, kernel_size=4, stride=2)
+        super(Decoder, self).__init__()
+        self.up_conv1 = nn.ConvTranspose2d(512, 512, kernel_size=4, stride=2,
+                                           padding=1)
         self.bn1 = nn.BatchNorm2d(512, 512)
-        self.conv1 = nn.Conv2d(512, 256, kernel_size=3, padding=1)
+        self.conv1 = nn.Conv2d(512+256, 256, kernel_size=3, padding=1)
 
-        self.up_conv2 = nn.ConvTranspose2d(256, 256, kernel_size=4, stride=2)
+        self.up_conv2 = nn.ConvTranspose2d(256, 256, kernel_size=4, stride=2,
+                                           padding=1)
         self.bn2 = nn.BatchNorm2d(256, 256)
-        self.conv2 = nn.Conv2d(256, 128, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(256+128, 128, kernel_size=3, padding=1)
 
-        self.up_conv3 = nn.ConvTranspose2d(128, 128, kernel_size=4, stride=2)
+        self.up_conv3 = nn.ConvTranspose2d(128, 128, kernel_size=4, stride=2,
+                                           padding=1)
         self.bn3 = nn.BatchNorm2d(128, 128)
-        self.conv3 = nn.Conv2d(128, 64, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(128+64, 64, kernel_size=3, padding=1)
 
-        self.up_conv4 = nn.ConvTranspose2d(64, 64, kernel_size=4, stride=2)
+        self.up_conv4 = nn.ConvTranspose2d(64, 64, kernel_size=4, stride=2,
+                                           padding=1)
         self.bn4 = nn.BatchNorm2d(64, 64)
         self.conv4 = nn.Conv2d(64, 32, kernel_size=3, padding=1)
 
-        self.up_conv5 = nn.ConvTranspose2d(32, 32, kernel_size=4, stride=2)
+        self.up_conv5 = nn.ConvTranspose2d(32, 32, kernel_size=4, stride=2,
+                                           padding=1)
         self.bn5 = nn.BatchNorm2d(32, 32)
         self.conv5 = nn.Conv2d(32, 16, kernel_size=3, padding=1)
         self.bn6 = nn.BatchNorm2d(16, 16)
