@@ -13,7 +13,10 @@ def getFList(path, process):
     '''
     Generate list of files as per process (dataType) and dataset.
     '''
-    allFileList = os.listdir(os.path.join(path, process))
+    # allFileList = os.listdir(os.path.join(path, process))
+    allFileList = np.loadtxt(os.path.join(path, 'file_lists',
+                                          process+'_list.txt'),
+                             delimiter='\n', dtype=str)
     fList = []
     for fName in allFileList:
         if fName.split('_')[0] in dataset_list:
@@ -49,10 +52,10 @@ def logMetrics(epochNum, metrics, process, logFile, saveName):
     if logFile:
         with open(os.path.join('logs', logFile), 'a') as f:
             f.write(line)
-    np.savetxt('logs/FprTpr_'+saveName.split('.')[0] + '.csv',
-               metrics.fpr_tpr_arr, delimiter=', ')
-    np.savetxt('logs/PrecisionRecall_'+saveName.split('.')[0] + '.csv',
-               metrics.precision_recall_arr, delimiter=', ')
+    # np.savetxt('logs/FprTpr_'+saveName.split('.')[0] + '.csv',
+    #            metrics.fpr_tpr_arr, delimiter=', ')
+    # np.savetxt('logs/PrecisionRecall_'+saveName.split('.')[0] + '.csv',
+    #            metrics.precision_recall_arr, delimiter=', ')
 
 
 def loadModel(loadModelFlag, model, saveName):
@@ -76,12 +79,12 @@ def saveChkpt(bestValRecord, bestVal, metrics, model, saveName):
     '''
     Save checkpoint model
     '''
-    diff = metrics.Acc - bestVal
-    bestVal = metrics.Acc
+    diff = metrics.F1 - bestVal
+    bestVal = metrics.F1
     with open(os.path.join('logs', bestValRecord), 'w') as statusFile:
-        statusFile.write('Best Accuracy so far: '+str(bestVal))
+        statusFile.write('Best F1 so far: '+str(bestVal))
     torch.save(model.state_dict(), 'chkpt_'+saveName+'.pt')
-    print('Model checkpoint saved since Accuracy has improved by '+str(diff))
+    print('Model checkpoint saved since F1 has improved by '+str(diff))
     return bestVal
 
 
@@ -149,6 +152,46 @@ def weightedBCE(weight, pred, target):
     return loss
 
 
+class DiceCoeff():
+    """Dice coeff for individual examples"""
+
+    def forward(self, input, target):
+        self.save_for_backward(input, target)
+        eps = 0.0001
+        self.inter = torch.dot(input.view(-1), target.view(-1))
+        self.union = torch.sum(input) + torch.sum(target) + eps
+
+        t = (2 * self.inter.float() + eps) / self.union.float()
+        return t
+
+    # This function has only a single output, so it gets only one gradient
+    def backward(self, grad_output):
+
+        input, target = self.saved_variables
+        grad_input = grad_target = None
+
+        if self.needs_input_grad[0]:
+            grad_input = grad_output * 2 * (target * self.union - self.inter) \
+                         / (self.union * self.union)
+        if self.needs_input_grad[1]:
+            grad_target = None
+
+        return grad_input, grad_target
+
+
+def dice_coeff(input, target):
+    """Dice coeff for batches"""
+    if input.is_cuda:
+        s = torch.FloatTensor(1).cuda().zero_()
+    else:
+        s = torch.FloatTensor(1).zero_()
+
+    for i, c in enumerate(zip(input, target)):
+        s = s + DiceCoeff().forward(c[0], c[1])
+
+    return s / (i + 1)
+
+
 def toCategorical(yArr):
     '''
     One Hot encoding for softmax
@@ -157,6 +200,17 @@ def toCategorical(yArr):
     y_OH.zero_()
     y_OH.scatter_(1, yArr, 1)
     return y_OH
+
+
+def integralDice(pred, gt, k):
+    '''
+    Dice coefficient for multiclass hard thresholded prediction consisting
+    of integers instead of binary values.
+    k = integer for class for which Dice is being calculated.
+    '''
+    return ((torch.sum(pred[gt == k] == k)*2.0 /
+            (torch.sum(pred[pred == k] == k)
+             + torch.sum(gt[gt == k] == k)).float()))
 
 
 def AUC(soft_predList, labelList):

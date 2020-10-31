@@ -4,7 +4,7 @@ path = '/home/abhinav/CXR_datasets/COVIDx_data'
 Metrics = namedtuple('Metrics', ['Loss', 'Acc', 'F1', 'AUROC', 'AUPRC',
                                  'fpr_tpr_arr', 'precision_recall_arr'])
 imgDims = (512, 512)
-dataSetList = ['actmed', 'fig1', 'sirm', 'rsna']
+dataset_list = ['actmed', 'fig1', 'sirm', 'cohen', 'rsna']
 
 window = (-79, 200)
 # crop_params = (210, 215)
