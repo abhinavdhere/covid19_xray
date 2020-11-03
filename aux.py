@@ -14,9 +14,12 @@ def getFList(path, process):
     Generate list of files as per process (dataType) and dataset.
     '''
     # allFileList = os.listdir(os.path.join(path, process))
-    allFileList = np.loadtxt(os.path.join(path, 'file_lists',
-                                          process+'_list.txt'),
-                             delimiter='\n', dtype=str)
+    if process == 'val':
+        flist_name = path.rsplit('/', 1)[0]+'/file_lists/5fold_split_val.txt'
+    else:
+        flist_name = (path.rsplit('/', 1)[0]+'/file_lists/5fold_split_1_'
+                      + process + '.txt')
+    allFileList = np.loadtxt(flist_name, delimiter='\n', dtype=str)
     fList = []
     for fName in allFileList:
         if fName.split('_')[0] in dataset_list:
@@ -65,9 +68,11 @@ def loadModel(loadModelFlag, model, saveName):
     '''
     try:
         if loadModelFlag == 'main':
-            model.load_state_dict(torch.load(saveName+'.pt'))
+            model.load_state_dict(torch.load(os.path.join('savedModels',
+                                                          saveName+'.pt')))
         elif loadModelFlag == 'chkpt':
-            model.load_state_dict(torch.load('chkpt_'+saveName+'.pt'))
+            model.load_state_dict(torch.load('savedModels/chkpt_'
+                                             + saveName+'.pt'))
         successFlag = 1
     except FileNotFoundError:
         print('Model does not exist! Aborting...')

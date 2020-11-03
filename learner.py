@@ -19,6 +19,7 @@ import aux
 import config
 from aux import weightedBCE as lossFun
 from model import ResNet
+from unet import UNet
 # from resnet import resnet18
 from augmentTools import korniaAffine,  augment_gaussian_noise
 
@@ -39,7 +40,7 @@ def augment(im, augType):
 def preprocess_data(full_name):
     img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
     # img = dcm.dcmread(full_name).pixel_array
-    # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+    img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
     # img = np.load(full_name)
     # img[img < config.window[0]] = config.window[0]
     # img[img > config.window[1]] = config.window[1]
@@ -52,39 +53,41 @@ def preprocess_data(full_name):
     # center[1]-crop2:center[1]+crop2]
     img = (img - np.mean(img)) / np.std(img)
     img = torch.Tensor(img).cuda()
-    # img = img.permute(2, 0, 1)
+    img = img.permute(2, 0, 1)
     img = img.unsqueeze(0)
     return img
 
 
-def dataLoader(fPath, dataType, batchSize, nBatches):
-    undersample = True
+def dataLoader(fPath, dataType, batchSize, nBatches, seg_model):
+    undersample = False
     sample_size = 2000
     fList = aux.getFList(fPath, dataType)
     augNames = ['normal', 'rotated', 'gaussNoise', 'mirror']
     # for augName in augNames:
     #     augList += [name+'_'+augName for name in fList]
     while True:
-        augList_classA = []
+        # augList_classA = []
         augList_classB = []
         augList = []
         if dataType == 'trn':
             for name in fList:
-                if int(name.split('_')[1]) == 2:
-                    augList_classA += [name+'_'+augName for augName in
-                                       augNames]
-                else:
-                    augName = np.random.choice(augNames)
-                    augList_classB.append(name+'_'+augName)
+                augName = np.random.choice(augNames)
+                augList.append(name+'_'+augName)
+                # if int(name.split('_')[1]) == 2:
+                #     augList_classA += [name+'_'+augName for augName in
+                #                        augNames]
+                # else:
+                #     augName = np.random.choice(augNames)
+                #     augList_classB.append(name+'_'+augName)
             if undersample:
                 augList_classB = np.random.choice(augList_classB,
                                                   (sample_size,),
                                                   replace=False)
-            augList = augList_classA + augList_classB.tolist()
+            # augList = augList_classA + augList_classB.tolist()
             augList = np.random.permutation(augList)
         else:
             augList += [name+'_normal' for name in fList]
-        # print(len(augList))
+        print(len(augList))
         dataArr = []
         labelArr = []
         fNameArr = []
@@ -95,15 +98,20 @@ def dataLoader(fPath, dataType, batchSize, nBatches):
             augName = fName_full.split('_')[-1]
             nameParts = fName.split('_')
             lbl = int(nameParts[1])
-            if lbl == 0:
-                # lbl = 1
-                continue
-            lbl -= 1
+            # if lbl == 0:
+            #     # lbl = 1
+            #     continue
+            # lbl -= 1
             name_w_path = os.path.join(fPath, fName)
             img = preprocess_data(name_w_path)
+            # pdb.set_trace()
+            lung_mask_soft = seg_model.forward(img)
+            lung_mask = torch.argmax(lung_mask_soft[0], 0)
+            img = img[0, 0, :, :]*lung_mask
+            img = img.unsqueeze(0)
             img = augment(img, augName)
-            # if lbl > 1:
-            #     lbl = 1
+            if lbl > 1:
+                lbl = 1
             if torch.std(img) == 0 or not torch.isfinite(img).all():
                 pdb.set_trace()
             lbl = torch.Tensor(np.array([lbl])).long()
@@ -240,30 +248,21 @@ def main():
             bestVal = float(statusFile.readline().strip('\n').split()[-1])
     lossWts = tuple(map(float, args.lossWeights.split(',')))
     # Inits
-    # trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 4)
-    trn_nBatches = 492  # 849
+    seg_model = UNet(n_classes=2).cuda()
+    aux.loadModel('chkpt', seg_model, 'lung_seg')
+    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 1)
+    # trn_nBatches = 492  # 849
     trnDataLoader = dataLoader(config.path, 'trn', args.batchSize,
-                               trn_nBatches)
+                               trn_nBatches, seg_model)
     val_nBatches = aux.get_nBatches(config.path, 'val', args.batchSize, 1)
     valDataLoader = dataLoader(config.path, 'val', args.batchSize,
-                               val_nBatches)
+                               val_nBatches, seg_model)
     tst_nBatches = aux.get_nBatches(config.path, 'tst', args.batchSize, 1)
     tstDataLoader = dataLoader(config.path, 'tst', args.batchSize,
-                               tst_nBatches)
+                               tst_nBatches, seg_model)
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    num_classes=2, downsample_freq=1).cuda()
     model = nn.DataParallel(model)
-    # model_stage1 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
-    #                       num_classes=2, downsample_freq=1).cuda()
-    # model_stage1 = nn.DataParallel(model_stage1)
-    # model_stage2 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
-    #                       num_classes=2, downsample_freq=1).cuda()
-    # model_stage2 = nn.DataParallel(model_stage2)
-    # aux.loadModel('chkpt', model_stage1, ('attn_multiScale_channelsStacked_'
-    #               'conicity_resnet_covidx_wAug_stage1_rerun'))
-    # aux.loadModel('chkpt', model_stage2, ('attn_multiScale_channelsStacked_'
-    #                                       'conicity_resnet_covidx_wAug_'
-    #                                       'undersample_stage2'))
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:
@@ -273,8 +272,8 @@ def main():
     # lossFun = nn.BCELoss(reduction='sum')
     # classWts = aux.getClassBalancedWt(0.9999, [810, 754])
     # classWts = aux.getClassBalancedWt(0.9999, [2720, 2703])
-    # classWts = aux.getClassBalancedWt(0.9999, [7081, 4854+485])
-    classWts = aux.getClassBalancedWt(0.9999, [4854, 485])
+    classWts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
+    # classWts = aux.getClassBalancedWt(0.9999, [4854, 485])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
@@ -305,6 +304,19 @@ def main():
                               'tst', args.batchSize, tst_nBatches, lossWts)
         aux.logMetrics(1, tstMetrics, 'tst', logFile, args.saveName)
     elif args.runMode == 'two_stage_inference':
+        model_stage1 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
+                              num_classes=2, downsample_freq=1).cuda()
+        model_stage1 = nn.DataParallel(model_stage1)
+        model_stage2 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
+                              num_classes=2, downsample_freq=1).cuda()
+        model_stage2 = nn.DataParallel(model_stage2)
+        aux.loadModel('chkpt', model_stage1,
+                      ('attn_multiScale_channelsStacked_'
+                       'conicity_resnet_covidx_wAug_stage1_rerun'))
+        aux.loadModel('chkpt', model_stage2,
+                      ('attn_multiScale_channelsStacked_'
+                       'conicity_resnet_covidx_wAug_'
+                       'undersample_stage2'))
         two_stage_inference(valDataLoader, model_stage1,
                             model_stage2, val_nBatches)
         two_stage_inference(tstDataLoader, model_stage1,
