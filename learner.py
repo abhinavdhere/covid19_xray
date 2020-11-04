@@ -87,7 +87,7 @@ def dataLoader(fPath, dataType, batchSize, nBatches, seg_model):
             augList = np.random.permutation(augList)
         else:
             augList += [name+'_normal' for name in fList]
-        print(len(augList))
+        # print(len(augList))
         dataArr = []
         labelArr = []
         fNameArr = []
@@ -108,6 +108,13 @@ def dataLoader(fPath, dataType, batchSize, nBatches, seg_model):
             lung_mask_soft = seg_model.forward(img)
             lung_mask = torch.argmax(lung_mask_soft[0], 0)
             img = img[0, 0, :, :]*lung_mask
+            min_row, max_row = np.where(np.any(lung_mask.
+                                               cpu().numpy(), 0))[0][[0, -1]]
+            min_col, max_col = np.where(np.any(lung_mask.
+                                               cpu().numpy(), 1))[0][[0, -1]]
+            img = img[min_col:max_col, min_row:max_row]
+            img = cv2.resize(img.cpu().numpy(), (352, 384), cv2.INTER_AREA)
+            img = torch.Tensor(img).cuda()
             img = img.unsqueeze(0)
             img = augment(img, augName)
             if lbl > 1:
@@ -198,7 +205,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
             print("Threshold value is:", optimal_threshold)
         metrics = config.Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
                                  precision_recall_arr)
-        print(metrics.Acc, metrics.F1)
+        # print(metrics.Acc, metrics.F1)
         # metrics = config.Metrics(finalLoss, acc, f1, 0, 0, None, None)
         return metrics
 
@@ -262,7 +269,7 @@ def main():
                                tst_nBatches, seg_model)
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    num_classes=2, downsample_freq=1).cuda()
-    model = nn.DataParallel(model)
+    # model = nn.DataParallel(model)
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:
