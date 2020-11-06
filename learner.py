@@ -71,8 +71,9 @@ def dataLoader(fPath, dataType, batchSize, nBatches, seg_model):
         augList = []
         if dataType == 'trn':
             for name in fList:
-                augName = np.random.choice(augNames)
-                augList.append(name+'_'+augName)
+                # augName = np.random.choice(augNames)
+                # augList.append(name+'_'+augName)
+                augList += [name + '_' + augName for augName in augNames]
                 # if int(name.split('_')[1]) == 2:
                 #     augList_classA += [name+'_'+augName for augName in
                 #                        augNames]
@@ -87,7 +88,7 @@ def dataLoader(fPath, dataType, batchSize, nBatches, seg_model):
             augList = np.random.permutation(augList)
         else:
             augList += [name+'_normal' for name in fList]
-        print(len(augList))
+        #print(len(augList))
         dataArr = []
         labelArr = []
         fNameArr = []
@@ -135,7 +136,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
     predList = []
     labelList = []
     softPredList = []
-    find_optimal_threshold = True
+    find_optimal_threshold = False
     # gc = GuidedGradCam(model, model.avgpool)
     with trange(nBatches, desc=process, ncols=100) as t:
         for m in range(nBatches):
@@ -172,7 +173,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
                     loss = lossWts[0]*loss + lossWts[1]*torch.sum(conicity)
             runningLoss += loss
             hardPred = torch.argmax(pred, 1)
-            # hardPred = (pred[:, 1] > 0.54948).int()
+            # hardPred = (pred[:, 1] > 0.38699).int()
             # hardPred = (pred[:, 1] > 0.00415).int()
             predList.append(hardPred.cpu())
             softPredList.append(pred.detach().cpu())
@@ -250,7 +251,7 @@ def main():
     # Inits
     seg_model = UNet(n_classes=2).cuda()
     aux.loadModel('chkpt', seg_model, 'lung_seg')
-    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 1)
+    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 4)
     # trn_nBatches = 492  # 849
     trnDataLoader = dataLoader(config.path, 'trn', args.batchSize,
                                trn_nBatches, seg_model)
@@ -298,7 +299,7 @@ def main():
     elif args.runMode == 'val':
         valMetrics = runModel(valDataLoader, model, optimizer, classWts,
                               'val', args.batchSize, val_nBatches, lossWts)
-        aux.logMetrics(1, valMetrics, 'val', logFile, args.saveName)
+        # aux.logMetrics(1, valMetrics, 'val', logFile, args.saveName)
     elif args.runMode == 'tst':
         tstMetrics = runModel(tstDataLoader, model, optimizer, classWts,
                               'tst', args.batchSize, tst_nBatches, lossWts)
