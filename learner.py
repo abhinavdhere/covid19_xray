@@ -71,8 +71,9 @@ def dataLoader(fPath, dataType, batchSize, nBatches, seg_model):
         augList = []
         if dataType == 'trn':
             for name in fList:
-                augName = np.random.choice(augNames)
-                augList.append(name+'_'+augName)
+                # augName = np.random.choice(augNames)
+                # augList.append(name+'_'+augName)
+                augList += [name+'_'+augName for augName in augNames]
                 # if int(name.split('_')[1]) == 2:
                 #     augList_classA += [name+'_'+augName for augName in
                 #                        augNames]
@@ -257,7 +258,7 @@ def main():
     # Inits
     seg_model = UNet(n_classes=2).cuda()
     aux.loadModel('chkpt', seg_model, 'lung_seg')
-    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 1)
+    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 4)
     # trn_nBatches = 492  # 849
     trnDataLoader = dataLoader(config.path, 'trn', args.batchSize,
                                trn_nBatches, seg_model)
@@ -269,7 +270,7 @@ def main():
                                tst_nBatches, seg_model)
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    num_classes=2, downsample_freq=1).cuda()
-    # model = nn.DataParallel(model)
+    model = nn.DataParallel(model)
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:
@@ -291,7 +292,7 @@ def main():
                                   'trn', args.batchSize, trn_nBatches,
                                   lossWts=lossWts)
             aux.logMetrics(epochNum, trnMetrics, 'trn', logFile, args.saveName)
-            torch.save(model.state_dict(), args.saveName+'.pt')
+            torch.save(model.state_dict(), 'savedModels/'+args.saveName+'.pt')
         # epochNum = 0
             valMetrics = runModel(valDataLoader, model, optimizer, classWts,
                                   'val', args.batchSize, val_nBatches, lossWts)
