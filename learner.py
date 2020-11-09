@@ -19,7 +19,7 @@ import aux
 import config
 from aux import weightedBCE as lossFun
 from model import ResNet
-from unet import UNet
+# from unet import UNet
 # from resnet import resnet18
 from augmentTools import korniaAffine,  augment_gaussian_noise
 
@@ -40,7 +40,7 @@ def augment(im, augType):
 def preprocess_data(full_name):
     img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
     # img = dcm.dcmread(full_name).pixel_array
-    img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+    # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
     # img = np.load(full_name)
     # img[img < config.window[0]] = config.window[0]
     # img[img > config.window[1]] = config.window[1]
@@ -53,15 +53,15 @@ def preprocess_data(full_name):
     # center[1]-crop2:center[1]+crop2]
     img = (img - np.mean(img)) / np.std(img)
     img = torch.Tensor(img).cuda()
-    img = img.permute(2, 0, 1)
-    img = img.unsqueeze(0)
+    # img = img.permute(2, 0, 1)
+    # img = img.unsqueeze(0)
     return img
 
 
-def dataLoader(fPath, dataType, batchSize, nBatches, seg_model):
+def dataLoader(fPath, dataType, batchSize, nBatches, fold_num):
     undersample = False
     sample_size = 2000
-    fList = aux.getFList(fPath, dataType)
+    fList = aux.getFList(fPath, dataType, fold_num)
     augNames = ['normal', 'rotated', 'gaussNoise', 'mirror']
     # for augName in augNames:
     #     augList += [name+'_'+augName for name in fList]
@@ -88,7 +88,7 @@ def dataLoader(fPath, dataType, batchSize, nBatches, seg_model):
             augList = np.random.permutation(augList)
         else:
             augList += [name+'_normal' for name in fList]
-        #print(len(augList))
+        # print(len(augList))
         dataArr = []
         labelArr = []
         fNameArr = []
@@ -105,10 +105,11 @@ def dataLoader(fPath, dataType, batchSize, nBatches, seg_model):
             # lbl -= 1
             name_w_path = os.path.join(fPath, fName)
             img = preprocess_data(name_w_path)
-            # pdb.set_trace()
-            lung_mask_soft = seg_model.forward(img)
-            lung_mask = torch.argmax(lung_mask_soft[0], 0)
-            img = img[0, 0, :, :]*lung_mask
+            pdb.set_trace()
+            lung_mask = cv2.imread(fPath.rsplit('/', 1)[0]
+                                   + '/lungSeg/'+fName, cv2.IMREAD_GRAYSCALE)
+            lung_mask[lung_mask == 255] = 1
+            img = img*lung_mask
             img = img.unsqueeze(0)
             img = augment(img, augName)
             if lbl > 1:
@@ -249,22 +250,24 @@ def main():
             bestVal = float(statusFile.readline().strip('\n').split()[-1])
     lossWts = tuple(map(float, args.lossWeights.split(',')))
     # Inits
-    seg_model = UNet(n_classes=2).cuda()
-    aux.loadModel('chkpt', seg_model, 'lung_seg')
-    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize, 4)
+    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize,
+                                    4, args.foldNum)
     # trn_nBatches = 492  # 849
     trnDataLoader = dataLoader(config.path, 'trn', args.batchSize,
-                               trn_nBatches, seg_model)
-    val_nBatches = aux.get_nBatches(config.path, 'val', args.batchSize, 1)
+                               trn_nBatches, args.foldNum)
+    val_nBatches = aux.get_nBatches(config.path, 'val', args.batchSize,
+                                    1, args.foldNum)
     valDataLoader = dataLoader(config.path, 'val', args.batchSize,
-                               val_nBatches, seg_model)
-    tst_nBatches = aux.get_nBatches(config.path, 'tst', args.batchSize, 1)
+                               val_nBatches, args.foldNum)
+    tst_nBatches = aux.get_nBatches(config.path, 'tst', args.batchSize,
+                                    1, args.foldNum)
     tstDataLoader = dataLoader(config.path, 'tst', args.batchSize,
-                               tst_nBatches, seg_model)
+                               tst_nBatches, args.foldNum)
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    num_classes=2, downsample_freq=1).cuda()
     model = nn.DataParallel(model)
     if args.loadModelFlag:
+        print(args.saveName)
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:
             return 0
@@ -285,7 +288,7 @@ def main():
                                   'trn', args.batchSize, trn_nBatches,
                                   lossWts=lossWts)
             aux.logMetrics(epochNum, trnMetrics, 'trn', logFile, args.saveName)
-            torch.save(model.state_dict(), args.saveName+'.pt')
+            torch.save(model.state_dict(), 'savedModels/'+args.saveName+'.pt')
         # epochNum = 0
             valMetrics = runModel(valDataLoader, model, optimizer, classWts,
                                   'val', args.batchSize, val_nBatches, lossWts)
@@ -340,3 +343,8 @@ if __name__ == '__main__':
     # tstMetrics = runModel(trnDataLoader, model, optimizer, classWts, 'tst',
     # args.batchSize, trn_nBatches, None)
     # logMetrics(0, tstMetrics, 'tst', logFile, args.saveName)
+    # lung_mask_soft = seg_model.forward(img)
+    # lung_mask = torch.argmax(lung_mask_soft[0], 0)
+    # img = img[0, 0, :, :]*lung_mask
+    # seg_model = UNet(n_classes=2).cuda()
+    # aux.loadModel('chkpt', seg_model, 'lung_seg')
