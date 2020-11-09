@@ -9,7 +9,7 @@ from config import dataset_list
 ''' Auxiliary functions for learner to use '''
 
 
-def getFList(path, process):
+def getFList(path, process, fold_num):
     '''
     Generate list of files as per process (dataType) and dataset.
     '''
@@ -17,8 +17,9 @@ def getFList(path, process):
     if process == 'val':
         flist_name = path.rsplit('/', 1)[0]+'/file_lists/5fold_split_val.txt'
     else:
-        flist_name = (path.rsplit('/', 1)[0]+'/file_lists/5fold_split_1_'
-                      + process + '.txt')
+        flist_name = (path.rsplit('/', 1)[0]+'/file_lists/5fold_split_' +
+                      str(fold_num)+'_' + process + '.txt')
+        # print(flist_name)
     allFileList = np.loadtxt(flist_name, delimiter='\n', dtype=str)
     fList = []
     for fName in allFileList:
@@ -27,11 +28,11 @@ def getFList(path, process):
     return fList
 
 
-def get_nBatches(path, process, batchSize, augFactor):
+def get_nBatches(path, process, batchSize, augFactor, fold_num):
     '''
     Compute number of batches.
     '''
-    fList = getFList(path, process)
+    fList = getFList(path, process, fold_num)
     nSamples = augFactor*len(fList)  # os.listdir(os.path.join(path, process)))
     if nSamples % batchSize == 0:
         nBatches = nSamples // batchSize
@@ -129,6 +130,8 @@ def getOptions():
                         "and auxiliary loss. Pass as a string in format wt1,"
                         "wt2 such that wt1+wt2=1", type=str,
                         default='0.8, 0.2')
+    parser.add_argument("--foldNum", help="Fold number for k fold"
+                        "cross-validation", type=int, default='1')
     parser.add_argument("-loadflg", "--loadModelFlag", help="Whether and"
                         "which model to load. main, chkpt or None"
                         "(not passed)", type=str)

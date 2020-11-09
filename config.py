@@ -1,6 +1,6 @@
 from collections import namedtuple
 
-path = '/home/abhinav/CXR_datasets/COVIDx_data'
+path = '/home/abhinav/CXR_datasets/COVIDx_data/all_data'
 Metrics = namedtuple('Metrics', ['Loss', 'Acc', 'F1', 'AUROC', 'AUPRC',
                                  'fpr_tpr_arr', 'precision_recall_arr'])
 imgDims = (512, 512)
