@@ -89,7 +89,7 @@ def saveChkpt(bestValRecord, bestVal, metrics, model, saveName):
     bestVal = metrics.F1
     with open(os.path.join('logs', bestValRecord), 'w') as statusFile:
         statusFile.write('Best F1 so far: '+str(bestVal))
-    torch.save(model.state_dict(), 'chkpt_'+saveName+'.pt')
+    torch.save(model.state_dict(), 'savedModels/chkpt_'+saveName+'.pt')
     print('Model checkpoint saved since F1 has improved by '+str(diff))
     return bestVal
 

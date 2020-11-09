@@ -110,6 +110,12 @@ def dataLoader(fPath, dataType, batchSize, nBatches, fold_num):
                                    + '/lungSeg/'+fName, cv2.IMREAD_GRAYSCALE)
             lung_mask[lung_mask == 255] = 1
             img = img*lung_mask
+            min_row, max_row = np.where(np.any(lung_mask.
+                                               cpu().numpy(), 0))[0][[0, -1]]
+            min_col, max_col = np.where(np.any(lung_mask.
+                                               cpu().numpy(), 1))[0][[0, -1]]
+            img = img[min_col:max_col, min_row:max_row]
+            img = cv2.resize(img.cpu().numpy(), (352, 384), cv2.INTER_AREA)
             img = img.unsqueeze(0)
             img = augment(img, augName)
             if lbl > 1:
@@ -200,7 +206,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
             print("Threshold value is:", optimal_threshold)
         metrics = config.Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
                                  precision_recall_arr)
-        print(metrics.Acc, metrics.F1)
+        # print(metrics.Acc, metrics.F1)
         # metrics = config.Metrics(finalLoss, acc, f1, 0, 0, None, None)
         return metrics
 
