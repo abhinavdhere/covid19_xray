@@ -107,16 +107,20 @@ class ResNet(nn.Module):
         conicity_sum = 0
         x = F.relu(self.bn1(self.conv1(x)))
         x = self.maxpool(x)
-        # import pdb ; pdb.set_trace()
         for block in self.main_arch:
             x, attn_map = block(x)
             conicity = self.get_conicity(attn_map)
             conicity_sum += conicity
-            attn_map = F.interpolate(attn_map, (64, 64),
-                                     align_corners=False, mode='bilinear')
             # attn_map = F.interpolate(attn_map, (52, 56),
             #                          align_corners=False, mode='bilinear')
             attn_map_list.append(attn_map)
+        mid_size = attn_map_list[(len(attn_map_list)//2) - 1].shape
+        for idx, attn_map in enumerate(attn_map_list):
+            attn_map_list[idx] = F.interpolate(attn_map,
+                                               (mid_size[2], mid_size[3]),
+                                               align_corners=False,
+                                               mode='bilinear')
+        # import pdb ; pdb.set_trace()
         stacked_attn_map = torch.cat(attn_map_list, 1)
         ms_attn = torch.sigmoid(self.attn_conv(stacked_attn_map))
         x = ms_attn*x
