@@ -35,9 +35,9 @@ def preprocess_data(full_name):
     return img
 
 
-def apply_seg_mask(img, fPath):
-    lung_mask = cv2.imread(fPath.rsplit('/', 1)[0]
-                           + '/lungSeg/'+fName, cv2.IMREAD_GRAYSCALE)
+def apply_seg_mask(img, file_path, file_name):
+    lung_mask = cv2.imread(file_path.rsplit('/', 1)[0]
+                           + '/lungSeg/'+file_name, cv2.IMREAD_GRAYSCALE)
     lung_mask[lung_mask == 255] = 1
     img = img*lung_mask
     min_row, max_row = np.where(np.any(lung_mask.
@@ -49,53 +49,34 @@ def apply_seg_mask(img, fPath):
     return img
 
 
-def dataLoader(fPath, dataType, batchSize, nBatches, fold_num):
+def dataLoader(file_path, data_type, batchSize, nBatches, fold_num):
     undersample = True
     sample_size = 2000
-    fList = aux.getFList(fPath, dataType, fold_num)
-    augNames = ['normal', 'rotated', 'gaussNoise', 'mirror']
-    # for augName in augNames:
-    #     augList += [name+'_'+augName for name in fList]
+    file_list = aux.getFList(file_path, data_type, fold_num)
+    aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror']
+    # for augName in aug_names:
+    #     aug_list += [name+'_'+augName for name in file_list]
     while True:
-        augList_classA = []
-        augList_classB = []
-        augList = []
-        if dataType == 'trn':
-            for name in fList:
-                # augName = np.random.choice(augNames)
-                # augList.append(name+'_'+augName)
-                # augList += [name + '_' + augName for augName in augNames]
-                if int(name.split('_')[1]) == 2:
-                    augList_classA += [name+'_'+augName for augName in
-                                       augNames]
-                else:
-                    augName = np.random.choice(augNames)
-                    augList_classB.append(name+'_'+augName)
-            if undersample:
-                augList_classB = np.random.choice(augList_classB,
-                                                  (sample_size,),
-                                                  replace=False)
-            augList = augList_classA + augList_classB.tolist()
-            augList = np.random.permutation(augList)
-        else:
-            augList += [name+'_normal' for name in fList]
-        print(len(augList))
-        count, batchCount, dataArr, labelArr, fNameArr = 0, 0, [], [], []
-        for fName_full in augList:
-            fName = '_'.join(fName_full.split('_')[:-1])
-            augName = fName_full.split('_')[-1]
-            nameParts = fName.split('_')
+        aug_list = aux.set_augmentations(file_list, aug_names,
+                                         'random_class0_all_class1', data_type,
+                                         undersample, sample_size)
+        print(len(aug_list))
+        count, batchCount, dataArr, labelArr, file_name_arr = 0, 0, [], [], []
+        for file_name_full in aug_list:
+            file_name = '_'.join(file_name_full.split('_')[:-1])
+            augName = file_name_full.split('_')[-1]
+            nameParts = file_name.split('_')
             lbl = int(nameParts[1])
             # if lbl == 0:
             #     # lbl = 1
             #     continue
             # lbl -= 1
-            name_w_path = os.path.join(fPath, fName)
+            name_w_path = os.path.join(file_path, file_name)
             img = preprocess_data(name_w_path)
             # pdb.set_trace()
-            img = apply_seg_mask(img, fList)
+            img = apply_seg_mask(img, file_list, file_name)
             img = img.unsqueeze(0)
-            img = augment(img, augName)
+            img = aux.augment(img, augName)
             if lbl > 1:
                 lbl = 1
             if torch.std(img) == 0 or not torch.isfinite(img).all():
@@ -103,13 +84,14 @@ def dataLoader(fPath, dataType, batchSize, nBatches, fold_num):
             lbl = torch.Tensor(np.array([lbl])).long()
             dataArr.append(img)
             labelArr.append(lbl)
-            fNameArr.append(fName_full)
+            file_name_arr.append(file_name_full)
             count += 1
             if count == batchSize or ((nBatches-batchCount) == 2 and
-                                      count == (len(fList) % batchSize)):
-                yield torch.stack(dataArr),  torch.stack(labelArr), fNameArr
+                                      count == (len(file_list) % batchSize)):
+                yield torch.stack(dataArr),  torch.stack(labelArr),\
+                        file_name_arr
                 batchCount += 1
-                count, dataArr, labelArr, fNameArr = 0, [], [], []
+                count, dataArr, labelArr, file_name_arr = 0, [], [], []
 
 
 def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
@@ -125,9 +107,9 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
     # gc = GuidedGradCam(model, model.avgpool)
     with trange(nBatches, desc=process, ncols=100) as t:
         for m in range(nBatches):
-            X, y, fName = dataLoader.__next__()
+            X, y, file_name = dataLoader.__next__()
             yOH = aux.toCategorical(y).cuda()
-            # print(fName)
+            # print(file_name)
             # pdb.set_trace()
             # attribution = gc.attribute(X, 1)
             if process == 'trn':
@@ -194,7 +176,7 @@ def two_stage_inference(dataLoader, model1, model2, nBatches):
     labelList = []
     softPredList = []
     for m in range(nBatches):
-        X, y, fName = dataLoader.__next__()
+        X, y, file_name = dataLoader.__next__()
         # yOH = aux.toCategorical(y).cuda()
         pred, conicity = model1.forward(X)
         pred = F.softmax(pred, 1)

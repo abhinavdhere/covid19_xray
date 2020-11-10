@@ -126,7 +126,7 @@ def augment(im, augType):
 
 def getFList(path, process, fold_num):
     '''
-    Generate list of files as per process (dataType) and dataset.
+    Generate list of files as per process (data_type) and dataset.
     '''
     # allFileList = os.listdir(os.path.join(path, process))
     if process == 'val':
@@ -136,19 +136,73 @@ def getFList(path, process, fold_num):
                       str(fold_num)+'_' + process + '.txt')
         # print(flist_name)
     allFileList = np.loadtxt(flist_name, delimiter='\n', dtype=str)
-    fList = []
+    file_list = []
     for fName in allFileList:
         if fName.split('_')[0] in dataset_list:
-            fList.append(fName)
-    return fList
+            file_list.append(fName)
+    return file_list
+
+
+def set_augmentations(file_list, aug_names, aug_setup, data_type,
+                      undersample, sample_size=None):
+    '''Set appropriate augmentations by appending codes to file names.
+
+    Args:
+        file_list (list): original list of file names from directory
+        aug_names (list): list of augmentations to be applied
+        aug_setup (str): fashion in which augmentations to be applied.
+            Allowed values are
+            'random_class0_all_class1' - random augmentations in class0
+            and all augmentations in class1
+            'random' - random augmentations for all classes
+            'all' - all augmentations for all classes
+        data_type (str): type of data to be loaded (trn, val or tst)
+        undersample (bool): whether to use undersampling for class0
+        sample_size (int, optional) - samples to be selected for undersampling
+            defaults to None. Compulsory if undersample is True.
+
+    Returns:
+        aug_list (list): list of file names with augmentation code appended.
+    '''
+    aug_list = []
+    if data_type == 'trn':
+        if aug_setup == 'random':
+            for name in file_list:
+                augName = np.random.choice(aug_names)
+                aug_list.append(name+'_'+augName)
+        elif aug_setup == 'all':
+            for name in file_list:
+                aug_list += [name + '_' + augName for augName in aug_names]
+        elif aug_setup == 'random_class0_all_class1':
+            aug_list_classA = []
+            aug_list_classB = []
+            for name in file_list:
+                if int(name.split('_')[1]) == 2:
+                    aug_list_classA += [name+'_'+augName for augName in
+                                        aug_names]
+                else:
+                    augName = np.random.choice(aug_names)
+                    aug_list_classB.append(name+'_'+augName)
+            if undersample:
+                if not sample_size:
+                    raise ValueError('Sample size not passed for'
+                                     'undersampling')
+                aug_list_classB = np.random.choice(aug_list_classB,
+                                                   (sample_size,),
+                                                   replace=False)
+            aug_list = aug_list_classA + aug_list_classB.tolist()
+        aug_list = np.random.permutation(aug_list)
+    else:
+        aug_list += [name+'_normal' for name in file_list]
+    return aug_list
 
 
 def get_nBatches(path, process, batchSize, augFactor, fold_num):
     '''
     Compute number of batches.
     '''
-    fList = getFList(path, process, fold_num)
-    nSamples = augFactor*len(fList)  # os.listdir(os.path.join(path, process)))
+    file_list = getFList(path, process, fold_num)
+    nSamples = augFactor*len(file_list)
     if nSamples % batchSize == 0:
         nBatches = nSamples // batchSize
     else:
