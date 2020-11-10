@@ -1,46 +1,47 @@
+''' Supplmentary functions for learner to use '''
 import numpy as np
 import torch
 import sklearn.metrics
 import argparse
 import os
 from config import dataset_list
+from augmentTools import korniaAffine,  augment_gaussian_noise
 
 
-''' Auxiliary functions for learner to use '''
-
-
-def getFList(path, process, fold_num):
+# # --------- Argparse options ------------
+def getOptions():
     '''
-    Generate list of files as per process (dataType) and dataset.
+    Set options for argument parser to take hyperparameters.
     '''
-    # allFileList = os.listdir(os.path.join(path, process))
-    if process == 'val':
-        flist_name = path.rsplit('/', 1)[0]+'/file_lists/5fold_split_val.txt'
-    else:
-        flist_name = (path.rsplit('/', 1)[0]+'/file_lists/5fold_split_' +
-                      str(fold_num)+'_' + process + '.txt')
-        # print(flist_name)
-    allFileList = np.loadtxt(flist_name, delimiter='\n', dtype=str)
-    fList = []
-    for fName in allFileList:
-        if fName.split('_')[0] in dataset_list:
-            fList.append(fName)
-    return fList
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--saveName", help="Name by which model will be saved"
+                        "Names of logging files depend on this",
+                        type=str)
+    parser.add_argument("--initEpochNum", help="Serial number of starting"
+                        "epoch, for display.", type=int, default=1)
+    parser.add_argument("--nEpochs", help="Number of epochs", type=int,
+                        default=10)
+    parser.add_argument("--batchSize", help="Batch Size", type=int, default=12)
+    parser.add_argument("-wd", "--weightDecay", help="Weight decay for"
+                        "optimizer", type=float, default='1e-5')
+    parser.add_argument("-lr", "--learningRate", help="Learning rate",
+                        type=float, default='1e-4')
+    parser.add_argument("-lwts", "--lossWeights", help="Weights for main"
+                        "and auxiliary loss. Pass as a string in format wt1,"
+                        "wt2 such that wt1+wt2=1", type=str,
+                        default='0.8, 0.2')
+    parser.add_argument("--foldNum", help="Fold number for k fold"
+                        "cross-validation", type=int, default='1')
+    parser.add_argument("-loadflg", "--loadModelFlag", help="Whether and"
+                        "which model to load. main, chkpt or None"
+                        "(not passed)", type=str)
+    parser.add_argument("--runMode", help="all : trn, val, tst \n trn: train"
+                        "only \n val: val only \n tst: test only", type=str,
+                        default="all")
+    return parser
 
 
-def get_nBatches(path, process, batchSize, augFactor, fold_num):
-    '''
-    Compute number of batches.
-    '''
-    fList = getFList(path, process, fold_num)
-    nSamples = augFactor*len(fList)  # os.listdir(os.path.join(path, process)))
-    if nSamples % batchSize == 0:
-        nBatches = nSamples // batchSize
-    else:
-        nBatches = (nSamples // batchSize) + 1
-    return nBatches
-
-
+# #--------- Logging and model loading/saving ---------
 def logMetrics(epochNum, metrics, process, logFile, saveName):
     '''
     Print metrics to terminal and save to logfile in a proper format.
@@ -89,7 +90,7 @@ def saveChkpt(bestValRecord, bestVal, metrics, model, saveName):
     bestVal = metrics.F1
     with open(os.path.join('logs', bestValRecord), 'w') as statusFile:
         statusFile.write('Best F1 so far: '+str(bestVal))
-    torch.save(model.state_dict(), 'chkpt_'+saveName+'.pt')
+    torch.save(model.state_dict(), 'savedModels/chkpt_'+saveName+'.pt')
     print('Model checkpoint saved since F1 has improved by '+str(diff))
     return bestVal
 
@@ -109,38 +110,53 @@ def initLogging(saveName):
     return bestValRecord, logFile
 
 
-def getOptions():
-    '''
-    Set options for argument parser to take hyperparameters.
-    '''
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--saveName", help="Name by which model will be saved"
-                        "Names of logging files depend on this",
-                        type=str)
-    parser.add_argument("--initEpochNum", help="Serial number of starting"
-                        "epoch, for display.", type=int, default=1)
-    parser.add_argument("--nEpochs", help="Number of epochs", type=int,
-                        default=10)
-    parser.add_argument("--batchSize", help="Batch Size", type=int, default=12)
-    parser.add_argument("-wd", "--weightDecay", help="Weight decay for"
-                        "optimizer", type=float, default='1e-5')
-    parser.add_argument("-lr", "--learningRate", help="Learning rate",
-                        type=float, default='1e-4')
-    parser.add_argument("-lwts", "--lossWeights", help="Weights for main"
-                        "and auxiliary loss. Pass as a string in format wt1,"
-                        "wt2 such that wt1+wt2=1", type=str,
-                        default='0.8, 0.2')
-    parser.add_argument("--foldNum", help="Fold number for k fold"
-                        "cross-validation", type=int, default='1')
-    parser.add_argument("-loadflg", "--loadModelFlag", help="Whether and"
-                        "which model to load. main, chkpt or None"
-                        "(not passed)", type=str)
-    parser.add_argument("--runMode", help="all : trn, val, tst \n trn: train"
-                        "only \n val: val only \n tst: test only", type=str,
-                        default="all")
-    return parser
+# #---------- Helpers for data loader -------
+def augment(im, augType):
+    if augType == 'normal':
+        im = im
+    elif augType == 'rotated':
+        rotAng = np.random.choice([-10, 10])
+        im = korniaAffine(im, rotAng, 'rotate')
+    elif augType == 'gaussNoise':
+        im = augment_gaussian_noise(im, (0, 0.5))
+    elif augType == 'mirror':
+        im = torch.flip(im, [-1])
+    return im
 
 
+def getFList(path, process, fold_num):
+    '''
+    Generate list of files as per process (dataType) and dataset.
+    '''
+    # allFileList = os.listdir(os.path.join(path, process))
+    if process == 'val':
+        flist_name = path.rsplit('/', 1)[0]+'/file_lists/5fold_split_val.txt'
+    else:
+        flist_name = (path.rsplit('/', 1)[0]+'/file_lists/5fold_split_' +
+                      str(fold_num)+'_' + process + '.txt')
+        # print(flist_name)
+    allFileList = np.loadtxt(flist_name, delimiter='\n', dtype=str)
+    fList = []
+    for fName in allFileList:
+        if fName.split('_')[0] in dataset_list:
+            fList.append(fName)
+    return fList
+
+
+def get_nBatches(path, process, batchSize, augFactor, fold_num):
+    '''
+    Compute number of batches.
+    '''
+    fList = getFList(path, process, fold_num)
+    nSamples = augFactor*len(fList)  # os.listdir(os.path.join(path, process)))
+    if nSamples % batchSize == 0:
+        nBatches = nSamples // batchSize
+    else:
+        nBatches = (nSamples // batchSize) + 1
+    return nBatches
+
+
+# #--------- Loss functions ------------
 def getClassBalancedWt(beta, samplesPerCls, nClasses=2):
     '''
     As per https://towardsdatascience.com/handling-class-imbalanced-data-
@@ -200,16 +216,7 @@ def dice_coeff(input, target):
     return s / (i + 1)
 
 
-def toCategorical(yArr):
-    '''
-    One Hot encoding for softmax
-    '''
-    y_OH = torch.FloatTensor(yArr.shape[0], 2)
-    y_OH.zero_()
-    y_OH.scatter_(1, yArr, 1)
-    return y_OH
-
-
+# #--------- Metrics --------------
 def integralDice(pred, gt, k):
     '''
     Dice coefficient for multiclass hard thresholded prediction consisting
@@ -256,3 +263,14 @@ def globalAcc(predList, labelList):
         labelList = torch.cat(labelList)
     acc = torch.sum(predList == labelList[:, 0]).float()/(predList.shape[0])
     return acc
+
+
+# #-------- Misc. --------
+def toCategorical(yArr):
+    '''
+    One Hot encoding for softmax
+    '''
+    y_OH = torch.FloatTensor(yArr.shape[0], 2)
+    y_OH.zero_()
+    y_OH.scatter_(1, yArr, 1)
+    return y_OH

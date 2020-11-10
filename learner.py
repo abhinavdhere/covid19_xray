@@ -21,36 +21,13 @@ from aux import weightedBCE as lossFun
 from model import ResNet
 # from unet import UNet
 # from resnet import resnet18
-from augmentTools import korniaAffine,  augment_gaussian_noise
-
-
-def augment(im, augType):
-    if augType == 'normal':
-        im = im
-    elif augType == 'rotated':
-        rotAng = np.random.choice([-10, 10])
-        im = korniaAffine(im, rotAng, 'rotate')
-    elif augType == 'gaussNoise':
-        im = augment_gaussian_noise(im, (0, 0.5))
-    elif augType == 'mirror':
-        im = torch.flip(im, [-1])
-    return im
 
 
 def preprocess_data(full_name):
     img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
-    # img = dcm.dcmread(full_name).pixel_array
     # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-    # img = np.load(full_name)
-    # img[img < config.window[0]] = config.window[0]
-    # img[img > config.window[1]] = config.window[1]
     img = cv2.resize(img, (config.imgDims[0], config.imgDims[1]),
                      cv2.INTER_AREA)
-    # crop1 = config.crop_params[0]
-    # crop2 = config.crop_params[1]
-    # center = (img.shape[0]//2, img.shape[1]//2)
-    # img = img[center[0]-crop1:center[0]+crop1,
-    # center[1]-crop2:center[1]+crop2]
     img = (img - np.mean(img)) / np.std(img)
     img = torch.Tensor(img).cuda()
     # img = img.permute(2, 0, 1)
@@ -58,42 +35,52 @@ def preprocess_data(full_name):
     return img
 
 
+def apply_seg_mask(img, fPath):
+    lung_mask = cv2.imread(fPath.rsplit('/', 1)[0]
+                           + '/lungSeg/'+fName, cv2.IMREAD_GRAYSCALE)
+    lung_mask[lung_mask == 255] = 1
+    img = img*lung_mask
+    min_row, max_row = np.where(np.any(lung_mask.
+                                       cpu().numpy(), 0))[0][[0, -1]]
+    min_col, max_col = np.where(np.any(lung_mask.
+                                       cpu().numpy(), 1))[0][[0, -1]]
+    img = img[min_col:max_col, min_row:max_row]
+    img = cv2.resize(img.cpu().numpy(), (352, 384), cv2.INTER_AREA)
+    return img
+
+
 def dataLoader(fPath, dataType, batchSize, nBatches, fold_num):
-    undersample = False
+    undersample = True
     sample_size = 2000
     fList = aux.getFList(fPath, dataType, fold_num)
     augNames = ['normal', 'rotated', 'gaussNoise', 'mirror']
     # for augName in augNames:
     #     augList += [name+'_'+augName for name in fList]
     while True:
-        # augList_classA = []
+        augList_classA = []
         augList_classB = []
         augList = []
         if dataType == 'trn':
             for name in fList:
                 # augName = np.random.choice(augNames)
                 # augList.append(name+'_'+augName)
-                augList += [name + '_' + augName for augName in augNames]
-                # if int(name.split('_')[1]) == 2:
-                #     augList_classA += [name+'_'+augName for augName in
-                #                        augNames]
-                # else:
-                #     augName = np.random.choice(augNames)
-                #     augList_classB.append(name+'_'+augName)
+                # augList += [name + '_' + augName for augName in augNames]
+                if int(name.split('_')[1]) == 2:
+                    augList_classA += [name+'_'+augName for augName in
+                                       augNames]
+                else:
+                    augName = np.random.choice(augNames)
+                    augList_classB.append(name+'_'+augName)
             if undersample:
                 augList_classB = np.random.choice(augList_classB,
                                                   (sample_size,),
                                                   replace=False)
-            # augList = augList_classA + augList_classB.tolist()
+            augList = augList_classA + augList_classB.tolist()
             augList = np.random.permutation(augList)
         else:
             augList += [name+'_normal' for name in fList]
-        # print(len(augList))
-        dataArr = []
-        labelArr = []
-        fNameArr = []
-        count = 0
-        batchCount = 0
+        print(len(augList))
+        count, batchCount, dataArr, labelArr, fNameArr = 0, 0, [], [], []
         for fName_full in augList:
             fName = '_'.join(fName_full.split('_')[:-1])
             augName = fName_full.split('_')[-1]
@@ -105,11 +92,8 @@ def dataLoader(fPath, dataType, batchSize, nBatches, fold_num):
             # lbl -= 1
             name_w_path = os.path.join(fPath, fName)
             img = preprocess_data(name_w_path)
-            pdb.set_trace()
-            lung_mask = cv2.imread(fPath.rsplit('/', 1)[0]
-                                   + '/lungSeg/'+fName, cv2.IMREAD_GRAYSCALE)
-            lung_mask[lung_mask == 255] = 1
-            img = img*lung_mask
+            # pdb.set_trace()
+            img = apply_seg_mask(img, fList)
             img = img.unsqueeze(0)
             img = augment(img, augName)
             if lbl > 1:
@@ -200,7 +184,7 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
             print("Threshold value is:", optimal_threshold)
         metrics = config.Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
                                  precision_recall_arr)
-        print(metrics.Acc, metrics.F1)
+        # print(metrics.Acc, metrics.F1)
         # metrics = config.Metrics(finalLoss, acc, f1, 0, 0, None, None)
         return metrics
 
@@ -228,11 +212,6 @@ def two_stage_inference(dataLoader, model1, model2, nBatches):
                                   torch.cat(predList),  labels=None,
                                   average='macro')
     print(acc, f1)
-    # auroc, auprc, fpr_tpr_arr, precision_recall_arr = aux.AUC(softPredList,
-    #                                                           labelList)
-    # metrics = config.Metrics(0, acc, f1, auroc, auprc, fpr_tpr_arr,
-    #                          precision_recall_arr)
-    # return metrics
 
 
 def main():
@@ -273,11 +252,8 @@ def main():
             return 0
         elif successFlag == 1:
             print("Model loaded successfully")
-    # lossFun = nn.BCELoss(reduction='sum')
-    # classWts = aux.getClassBalancedWt(0.9999, [810, 754])
-    # classWts = aux.getClassBalancedWt(0.9999, [2720, 2703])
+    # classWts = aux.getClassBalancedWt(0.9999, [4610, 461])
     classWts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
-    # classWts = aux.getClassBalancedWt(0.9999, [4854, 485])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
@@ -331,6 +307,15 @@ if __name__ == '__main__':
     main()
 
 # Graveyard
+    # img = dcm.dcmread(full_name).pixel_array
+    # img = np.load(full_name)
+    # img[img < config.window[0]] = config.window[0]
+    # img[img > config.window[1]] = config.window[1]
+    # crop1 = config.crop_params[0]
+    # crop2 = config.crop_params[1]
+    # center = (img.shape[0]//2, img.shape[1]//2)
+    # img = img[center[0]-crop1:center[0]+crop1,
+    # center[1]-crop2:center[1]+crop2]
     # toSave = torch.cat((torch.cat(predList).unsqueeze(-1),
     # torch.cat(labelList)), axis=1)
     # toSave1 = torch.cat((toSave.float(), torch.cat(softPredList)),
@@ -348,3 +333,8 @@ if __name__ == '__main__':
     # img = img[0, 0, :, :]*lung_mask
     # seg_model = UNet(n_classes=2).cuda()
     # aux.loadModel('chkpt', seg_model, 'lung_seg')
+    # auroc, auprc, fpr_tpr_arr, precision_recall_arr = aux.AUC(softPredList,
+    #                                                           labelList)
+    # metrics = config.Metrics(0, acc, f1, auroc, auprc, fpr_tpr_arr,
+    #                          precision_recall_arr)
+    # return metrics
