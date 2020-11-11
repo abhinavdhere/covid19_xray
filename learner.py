@@ -143,8 +143,8 @@ def main():
     lossWts = tuple(map(float, args.lossWeights.split(',')))
     # Inits
     aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror']
-    trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
-                                  'random_class0_all_class1',
+    trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize, 'all',
+                                  # 'random_class0_all_class1',
                                   undersample=True, sample_size=2000,
                                   aug_names=aug_names)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize, 'none')
@@ -197,12 +197,11 @@ def main():
                               num_classes=2, downsample_freq=1).cuda()
         model_stage2 = nn.DataParallel(model_stage2)
         aux.loadModel('chkpt', model_stage1,
-                      ('attn_multiScale_channelsStacked_'
-                       'conicity_resnet_covidx_wAug_stage1_rerun'))
-        aux.loadModel('chkpt', model_stage2,
-                      ('attn_multiScale_channelsStacked_'
-                       'conicity_resnet_covidx_wAug_'
-                       'undersample_stage2'))
+                      'stage1_noLungSeg_allAug_fold'
+                      + str(args.foldNum))
+        aux.loadModel('chkpt', model_stage2, 'stage2_noLungSeg_fold'
+                      + str(args.foldNum))
+        # print(flg1, flg2)
         two_stage_inference(val_data_handler, model_stage1, model_stage2)
         two_stage_inference(tst_data_handler, model_stage1, model_stage2)
 

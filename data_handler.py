@@ -147,10 +147,10 @@ class DataLoader:
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         img = (img - np.mean(img)) / np.std(img)
-        img = torch.Tensor(img).cuda()
         if segment_lung:
             img = self.apply_seg_mask(img, full_name.split('/')[-1],
                                       crop=True)
+        img = torch.Tensor(img).cuda()
         if self.in_channels == 0:
             img = img.unsqueeze(0)
         img = augment(img, aug_name)
@@ -173,12 +173,10 @@ class DataLoader:
         lung_mask[lung_mask == 255] = 1
         img = img*lung_mask
         if crop:
-            min_row, max_row = np.where(np.any(lung_mask.
-                                               cpu().numpy(), 0))[0][[0, -1]]
-            min_col, max_col = np.where(np.any(lung_mask.
-                                               cpu().numpy(), 1))[0][[0, -1]]
+            min_row, max_row = np.where(np.any(lung_mask, 0))[0][[0, -1]]
+            min_col, max_col = np.where(np.any(lung_mask, 1))[0][[0, -1]]
             img = img[min_col:max_col, min_row:max_row]
-            img = cv2.resize(img.cpu().numpy(), (352, 384), cv2.INTER_AREA)
+            img = cv2.resize(img, (352, 384), cv2.INTER_AREA)
         return img
 
     def dataloader(self):
@@ -196,7 +194,7 @@ class DataLoader:
         """
         while True:
             aug_list = self.aug_list
-            print(len(aug_list))
+            # print(len(aug_list))
             count, batch_count, data_arr, label_arr,\
                 file_name_arr = 0, 0, [], [], []
             for file_name_full in aug_list:
@@ -210,7 +208,7 @@ class DataLoader:
                     lbl = 1
                 name_w_path = os.path.join(config.PATH, file_name)
                 img = self.preprocess_data(name_w_path, aug_name,
-                                           segment_lung=False)
+                                           segment_lung=True)
                 # pdb.set_trace()
                 if torch.std(img) == 0 or not torch.isfinite(img).all():
                     raise ValueError('Image intensity inappropriate'

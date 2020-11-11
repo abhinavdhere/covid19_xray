@@ -16,6 +16,7 @@ IMG_DIMS = (512, 512)
 DATASET_LIST = ['actmed', 'fig1', 'sirm', 'cohen', 'rsna']
 # TASK = 'normal_vs_pneumonia'
 TASK = 'pneumonia_vs_covid'
+# TASK = 'two_stage'
 
 # # Used variables
 # crop_params = (210, 215)
