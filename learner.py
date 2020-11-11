@@ -3,7 +3,7 @@ Primary module. Includes dataloader,  trn/val/test functions. Reads
 options from user and runs training.
 '''
 import os
-import pdb
+# import pdb
 
 import torch
 import torch.nn.functional as F
@@ -12,106 +12,36 @@ import torch.nn as nn
 from tqdm import trange
 import numpy as np
 import sklearn.metrics
-import cv2
 # import pydicom as dcm
 # from pytorch_model_summary import summary
 import aux
 import config
+from data_handler import DataLoader
 from aux import weightedBCE as lossFun
 from model import ResNet
 # from unet import UNet
 # from resnet import resnet18
 
 
-def preprocess_data(full_name):
-    img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
-    # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-    img = cv2.resize(img, (config.imgDims[0], config.imgDims[1]),
-                     cv2.INTER_AREA)
-    img = (img - np.mean(img)) / np.std(img)
-    img = torch.Tensor(img).cuda()
-    # img = img.permute(2, 0, 1)
-    # img = img.unsqueeze(0)
-    return img
-
-
-def apply_seg_mask(img, file_path, file_name):
-    lung_mask = cv2.imread(file_path.rsplit('/', 1)[0]
-                           + '/lungSeg/'+file_name, cv2.IMREAD_GRAYSCALE)
-    lung_mask[lung_mask == 255] = 1
-    img = img*lung_mask
-    min_row, max_row = np.where(np.any(lung_mask.
-                                       cpu().numpy(), 0))[0][[0, -1]]
-    min_col, max_col = np.where(np.any(lung_mask.
-                                       cpu().numpy(), 1))[0][[0, -1]]
-    img = img[min_col:max_col, min_row:max_row]
-    img = cv2.resize(img.cpu().numpy(), (352, 384), cv2.INTER_AREA)
-    return img
-
-
-def dataLoader(file_path, data_type, batchSize, nBatches, fold_num):
-    undersample = True
-    sample_size = 2000
-    file_list = aux.getFList(file_path, data_type, fold_num)
-    aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror']
-    # for augName in aug_names:
-    #     aug_list += [name+'_'+augName for name in file_list]
-    while True:
-        aug_list = aux.set_augmentations(file_list, aug_names,
-                                         'random_class0_all_class1', data_type,
-                                         undersample, sample_size)
-        print(len(aug_list))
-        count, batchCount, dataArr, labelArr, file_name_arr = 0, 0, [], [], []
-        for file_name_full in aug_list:
-            file_name = '_'.join(file_name_full.split('_')[:-1])
-            augName = file_name_full.split('_')[-1]
-            nameParts = file_name.split('_')
-            lbl = int(nameParts[1])
-            # if lbl == 0:
-            #     # lbl = 1
-            #     continue
-            # lbl -= 1
-            name_w_path = os.path.join(file_path, file_name)
-            img = preprocess_data(name_w_path)
-            # pdb.set_trace()
-            img = apply_seg_mask(img, file_list, file_name)
-            img = img.unsqueeze(0)
-            img = aux.augment(img, augName)
-            if lbl > 1:
-                lbl = 1
-            if torch.std(img) == 0 or not torch.isfinite(img).all():
-                pdb.set_trace()
-            lbl = torch.Tensor(np.array([lbl])).long()
-            dataArr.append(img)
-            labelArr.append(lbl)
-            file_name_arr.append(file_name_full)
-            count += 1
-            if count == batchSize or ((nBatches-batchCount) == 2 and
-                                      count == (len(file_list) % batchSize)):
-                yield torch.stack(dataArr),  torch.stack(labelArr),\
-                        file_name_arr
-                batchCount += 1
-                count, dataArr, labelArr, file_name_arr = 0, [], [], []
-
-
-def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
-             nBatches, lossWts):
+def runModel(data_handler, model, optimizer, classWts, lossWts):
     '''
     process : 'trn', 'val' or 'tst'
     '''
+    num_batches = data_handler.num_batches
+    batch_size = data_handler.batch_size
+    process = data_handler.data_type
     runningLoss = 0
     predList = []
     labelList = []
     softPredList = []
     find_optimal_threshold = False
     # gc = GuidedGradCam(model, model.avgpool)
-    with trange(nBatches, desc=process, ncols=100) as t:
-        for m in range(nBatches):
-            X, y, file_name = dataLoader.__next__()
+    with trange(num_batches, desc=process, ncols=100) as t:
+        for m in range(num_batches):
+            X, y, file_name = data_handler.datagen.__next__()
             yOH = aux.toCategorical(y).cuda()
             # print(file_name)
             # pdb.set_trace()
-            # attribution = gc.attribute(X, 1)
             if process == 'trn':
                 optimizer.zero_grad()
                 model.train()
@@ -145,9 +75,9 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
             predList.append(hardPred.cpu())
             softPredList.append(pred.detach().cpu())
             labelList.append(y.cpu())
-            t.set_postfix(loss=runningLoss.item()/(float(m+1)*batchSize))
+            t.set_postfix(loss=runningLoss.item()/(float(m+1)*batch_size))
             t.update()
-        finalLoss = runningLoss/(float(m+1)*batchSize)
+        finalLoss = runningLoss/(float(m+1)*batch_size)
         acc = aux.globalAcc(predList, labelList)
         f1 = sklearn.metrics.f1_score(torch.cat(labelList),
                                       torch.cat(predList),  labels=None,
@@ -171,12 +101,13 @@ def runModel(dataLoader, model, optimizer, classWts, process, batchSize,
         return metrics
 
 
-def two_stage_inference(dataLoader, model1, model2, nBatches):
+def two_stage_inference(data_handler, model1, model2):
     predList = []
     labelList = []
     softPredList = []
-    for m in range(nBatches):
-        X, y, file_name = dataLoader.__next__()
+    num_batches = data_handler.num_batches
+    for m in range(num_batches):
+        X, y, file_name = data_handler.datagen.__next__()
         # yOH = aux.toCategorical(y).cuda()
         pred, conicity = model1.forward(X)
         pred = F.softmax(pred, 1)
@@ -211,19 +142,13 @@ def main():
             bestVal = float(statusFile.readline().strip('\n').split()[-1])
     lossWts = tuple(map(float, args.lossWeights.split(',')))
     # Inits
-    trn_nBatches = aux.get_nBatches(config.path, 'trn', args.batchSize,
-                                    4, args.foldNum)
-    # trn_nBatches = 492  # 849
-    trnDataLoader = dataLoader(config.path, 'trn', args.batchSize,
-                               trn_nBatches, args.foldNum)
-    val_nBatches = aux.get_nBatches(config.path, 'val', args.batchSize,
-                                    1, args.foldNum)
-    valDataLoader = dataLoader(config.path, 'val', args.batchSize,
-                               val_nBatches, args.foldNum)
-    tst_nBatches = aux.get_nBatches(config.path, 'tst', args.batchSize,
-                                    1, args.foldNum)
-    tstDataLoader = dataLoader(config.path, 'tst', args.batchSize,
-                               tst_nBatches, args.foldNum)
+    aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror']
+    trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
+                                  'random_class0_all_class1',
+                                  undersample=True, sample_size=2000,
+                                  aug_names=aug_names)
+    val_data_handler = DataLoader('val', args.foldNum, args.batchSize, 'none')
+    tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize, 'none')
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    num_classes=2, downsample_freq=1).cuda()
     model = nn.DataParallel(model)
@@ -242,28 +167,27 @@ def main():
     if args.runMode == 'all':
         for epochNum in range(args.initEpochNum, args.initEpochNum
                               + args.nEpochs):
-            trnMetrics = runModel(trnDataLoader, model, optimizer, classWts,
-                                  'trn', args.batchSize, trn_nBatches,
+            trnMetrics = runModel(trn_data_handler, model, optimizer, classWts,
                                   lossWts=lossWts)
             aux.logMetrics(epochNum, trnMetrics, 'trn', logFile, args.saveName)
             torch.save(model.state_dict(), 'savedModels/'+args.saveName+'.pt')
         # epochNum = 0
-            valMetrics = runModel(valDataLoader, model, optimizer, classWts,
-                                  'val', args.batchSize, val_nBatches, lossWts)
+            valMetrics = runModel(val_data_handler, model, optimizer, classWts,
+                                  lossWts)
             aux.logMetrics(epochNum, valMetrics, 'val', logFile, args.saveName)
             if bestValRecord and valMetrics.F1 > bestVal:
                 bestVal = aux.saveChkpt(bestValRecord, bestVal, valMetrics,
                                         model, args.saveName)
-        tstMetrics = runModel(tstDataLoader, model, optimizer, classWts,
-                              'tst', args.batchSize, tst_nBatches, lossWts)
+        tstMetrics = runModel(tst_data_handler, model, optimizer, classWts,
+                              lossWts)
         aux.logMetrics(epochNum, tstMetrics, 'tst', logFile, args.saveName)
     elif args.runMode == 'val':
-        valMetrics = runModel(valDataLoader, model, optimizer, classWts,
-                              'val', args.batchSize, val_nBatches, lossWts)
-        # aux.logMetrics(1, valMetrics, 'val', logFile, args.saveName)
+        valMetrics = runModel(val_data_handler, model, optimizer, classWts,
+                              lossWts)
+        aux.logMetrics(1, valMetrics, 'val', logFile, args.saveName)
     elif args.runMode == 'tst':
-        tstMetrics = runModel(tstDataLoader, model, optimizer, classWts,
-                              'tst', args.batchSize, tst_nBatches, lossWts)
+        tstMetrics = runModel(tst_data_handler, model, optimizer, classWts,
+                              lossWts)
         aux.logMetrics(1, tstMetrics, 'tst', logFile, args.saveName)
     elif args.runMode == 'two_stage_inference':
         model_stage1 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
@@ -279,16 +203,15 @@ def main():
                       ('attn_multiScale_channelsStacked_'
                        'conicity_resnet_covidx_wAug_'
                        'undersample_stage2'))
-        two_stage_inference(valDataLoader, model_stage1,
-                            model_stage2, val_nBatches)
-        two_stage_inference(tstDataLoader, model_stage1,
-                            model_stage2, tst_nBatches)
+        two_stage_inference(val_data_handler, model_stage1, model_stage2)
+        two_stage_inference(tst_data_handler, model_stage1, model_stage2)
 
 
 if __name__ == '__main__':
     main()
 
 # Graveyard
+    # trn_nBatches = 492  # 849
     # img = dcm.dcmread(full_name).pixel_array
     # img = np.load(full_name)
     # img[img < config.window[0]] = config.window[0]
