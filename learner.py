@@ -142,10 +142,11 @@ def main():
             bestVal = float(statusFile.readline().strip('\n').split()[-1])
     lossWts = tuple(map(float, args.lossWeights.split(',')))
     # Inits
-    aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror']
+    aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
+                 'blur', 'sharpen', 'translate']
     trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize, 'all',
                                   # 'random_class0_all_class1',
-                                  undersample=True, sample_size=2000,
+                                  undersample=False, sample_size=None,
                                   aug_names=aug_names)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize, 'none')
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize, 'none')
@@ -159,8 +160,9 @@ def main():
             return 0
         elif successFlag == 1:
             print("Model loaded successfully")
+    classWts = aux.getClassBalancedWt(0.9999, [1203, 1176+390])
     # classWts = aux.getClassBalancedWt(0.9999, [4610, 461])
-    classWts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
+    # classWts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
@@ -196,12 +198,13 @@ def main():
         model_stage2 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                               num_classes=2, downsample_freq=1).cuda()
         model_stage2 = nn.DataParallel(model_stage2)
-        aux.loadModel('chkpt', model_stage1,
-                      'stage1_noLungSeg_allAug_fold'
-                      + str(args.foldNum))
-        aux.loadModel('chkpt', model_stage2, 'stage2_noLungSeg_fold'
-                      + str(args.foldNum))
-        # print(flg1, flg2)
+        flg1 = aux.loadModel('chkpt', model_stage1,
+                             'pd_stage1_noLungSeg_allAug_fold'
+                             + str(args.foldNum))
+        flg2 = aux.loadModel('chkpt', model_stage2,
+                             'pd_stage2_noLungSeg_allAug_fold'
+                             + str(args.foldNum))
+        print(flg1, flg2)
         two_stage_inference(val_data_handler, model_stage1, model_stage2)
         two_stage_inference(tst_data_handler, model_stage1, model_stage2)
 

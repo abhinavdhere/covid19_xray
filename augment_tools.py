@@ -4,20 +4,40 @@ import random
 import numpy as np
 
 
-def augment(im, augType):
-    if augType == 'normal':
+def augment(im, aug_type):
+    if aug_type == 'normal':
         im = im
-    elif augType == 'rotated':
-        rotAng = np.random.choice([-10, 10])
-        im = korniaAffine(im, rotAng, 'rotate')
-    elif augType == 'gaussNoise':
-        im = augment_gaussian_noise(im, (0, 0.5))
-    elif augType == 'mirror':
+    # elif aug_type == 'rotated':
+    #     rotAng = np.random.choice([-10, 10])
+    #     im = korniaAffine(im, rotAng, 'rotate')
+    elif aug_type == 'gaussNoise':
+        im = augment_gaussian_noise(im, (0.15, 0.3))
+    elif aug_type == 'mirror':
         im = torch.flip(im, [-1])
+    elif aug_type in ['blur', 'sharpen', 'translate', 'rotate']:
+        im = im.unsqueeze(0)
+        if aug_type == 'blur':
+            im = kornia.filters.gaussian_blur2d(im, (7, 7), (3, 3))
+        elif aug_type == 'sharpen':
+            im_blur = kornia.filters.gaussian_blur2d(im, (17, 17), (11, 11))
+            difference = im - im_blur
+            im = im + difference
+        elif aug_type == 'translate':
+            motion_x = np.random.choice([-20, -10, 10, 20])
+            motion_y = np.random.choice([-20, -10, 10, 20])
+            translation = torch.Tensor(np.array([[motion_x,
+                                                  motion_y]])).cuda()
+            im = kornia.geometry.transform.translate(im, translation)
+        elif aug_type == 'rotate':
+            rotate_angle = np.random.choice([-10, 10])
+            center_x, center_y = im.shape[1]//2, im.shape[2]//2
+            center = torch.Tensor(np.array[[center_x, center_y]]).cuda()
+            im = kornia.geometry.transform.rotate(im, rotate_angle, center)
+        im = im[0]
     return im
 
 
-def korniaAffine(im, parameter, augType, dataType='data'):
+def korniaAffine(im, parameter, aug_type, dataType='data'):
     '''
     Get rotation by given angle or scale by given factor along axis-0
     using kornia.
@@ -26,10 +46,10 @@ def korniaAffine(im, parameter, augType, dataType='data'):
     center = torch.ones(1, 2).cuda()
     center[..., 0] = im.shape[1] // 2
     center[..., 1] = im.shape[2] // 2
-    if augType == 'rotate':
+    if aug_type == 'rotate':
         scale = torch.ones(1).cuda()
         angle = parameter*scale
-    elif augType == 'scale':
+    elif aug_type == 'scale':
         scale = torch.Tensor([parameter]).cuda()
         angle = 0*scale
         # vol_warped = kornia.scale(vol[:,0,:,:,:],scale,center)
