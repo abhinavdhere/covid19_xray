@@ -9,11 +9,10 @@ from PIL import Image
 import cv2
 import numpy as np
 import pandas as pd
-from aux import loadModel, get_nBatches
-from learner import dataLoader
-from config import path
+from aux import loadModel
+from learner import DataLoader
 import matplotlib.pyplot as plt
-# import pdb
+import pdb
 
 
 def load_BB(fName, img):
@@ -31,23 +30,23 @@ def load_BB(fName, img):
     return img_bb_overlayed
 
 
-val_nBatches = get_nBatches(path, 'val', 1, 1)
-valDataLoader = dataLoader(path, 'val', 1, val_nBatches)
+model_name = sys.argv[1]
+folder_name = sys.argv[2]
+foldNum = sys.argv[3]
+val_data_handler = DataLoader('val', foldNum, 1, 'none')
+num_batches = val_data_handler.num_batches
 model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                downsample_freq=1).cuda()
 model = nn.DataParallel(model)
-model_name = sys.argv[1]
-folder_name = sys.argv[2]
 successFlag = loadModel('main', model, model_name)
-get_bb_flag = True
+get_bb_flag = False
 model.eval()
-for i in range(val_nBatches):
-    X, y, fName = valDataLoader.__next__()
+for i in range(num_batches):
+    X, y, fName = val_data_handler.datagen.__next__()
     with torch.no_grad():
         pred = model.forward(X)
         pred = F.softmax(pred, 1)
     if y.item() == 1 and torch.argmax(pred).item() == 1:
-        # pdb.set_trace()
         # gcObj = captum.attr.LayerGradCam(model.forward, model.main_arch[3]
         #                                  .conv_block[10])
         gcObj = captum.attr.LayerGradCam(model.forward, model.module.semifinal)
@@ -55,15 +54,16 @@ for i in range(val_nBatches):
         attrRescaled = Image.fromarray(attr.detach().cpu()
                                        .numpy()[0, 0, :, :]).resize(
                                            (X.shape[3], X.shape[2]))
-        img = X.permute(0, 2, 3, 1)[0, :, :, :].detach().cpu().numpy()
+        img = X[0, :, :, :].detach().cpu().numpy()
         if get_bb_flag:
             img = load_BB(fName, img)
+        pdb.set_trace()
         pltObj = viz.visualize_image_attr(np.expand_dims(attrRescaled, -1),
                                           img, method="blended_heat_map",
-                                          cmap='jet', sign="absolute_value",
+                                          cmap='gray', sign="absolute_value",
                                           show_colorbar=True,
                                           title="Overlayed Attributions")
-        pltObj[0].savefig('./gradcam_res/'+folder_name+'/gradCam_'
+        pltObj[0].savefig('./gradcam_misc/'+model_name+'_'
                           + fName[0].split('.')[0] + '.png')
         plt.close()
         # plt.imshow(X.permute(0,2,3,1)[0,:,:,:].detach().cpu().numpy()
