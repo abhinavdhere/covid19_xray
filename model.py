@@ -63,6 +63,22 @@ class ResBlock(nn.Module):
         return res, out
 
 
+class AuxClassifier(nn.Module):
+    def __init__(self, in_channels, num_classes):
+        super(AuxClassifier, self).__init__()
+        self.conv0 = nn.Conv2d(in_channels, in_channels*4, kernel_size=3,
+                               stride=4, padding=1)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.final = nn.Linear(512, num_classes)
+
+    def forward(self, x):
+        x = F.relu(self.conv0(x))
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        out = self.final(x)
+        return out
+
+
 class ResNet(nn.Module):
     def __init__(self, in_channels, num_blocks, num_layers, num_classes=2,
                  num_feats=64, downsample_freq=1):
@@ -82,6 +98,7 @@ class ResNet(nn.Module):
         self.bn1 = nn.BatchNorm2d(num_feats)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layers = []
+        self.num_blocks = num_blocks
         init_feats = num_feats
         downsample = False
         for block_num in range(num_blocks):
@@ -100,6 +117,7 @@ class ResNet(nn.Module):
                                    padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.final = nn.Linear(num_feats, num_classes)
+        self.aux_classifier = AuxClassifier(128, num_classes)
         # self.weights = nn.Parameter(torch.ones(num_blocks, 128, 128)).cuda()
 
     def forward(self, x):
@@ -107,8 +125,10 @@ class ResNet(nn.Module):
         conicity_sum = 0
         x = F.relu(self.bn1(self.conv1(x)))
         x = self.maxpool(x)
-        for block in self.main_arch:
+        for num, block in enumerate(self.main_arch, 1):
             x, attn_map = block(x)
+            if self.training and num == (self.num_blocks // 2):
+                aux = self.aux_classifier(x)
             conicity = self.get_conicity(attn_map)
             conicity_sum += conicity
             # attn_map = F.interpolate(attn_map, (52, 56),
@@ -128,7 +148,10 @@ class ResNet(nn.Module):
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         out = self.final(x)
-        return out, conicity_sum
+        if self.training:
+            return out, aux, conicity_sum
+        else:
+            return out, conicity_sum
 
     def get_conicity(self, attn_map):
         atm = 0

@@ -46,15 +46,16 @@ def runModel(data_handler, model, optimizer, classWts, lossWts):
                 optimizer.zero_grad()
                 model.train()
                 # pred, auxPred = model.forward(X)
-                pred, conicity = model.forward(X)
+                pred, auxPred, conicity = model.forward(X)
                 pred = F.softmax(pred, 1)
-                # auxPred = F.softmax(auxPred, 1)
+                auxPred = F.softmax(auxPred, 1)
                 loss = 0
                 for i in range(2):
-                    loss += lossFun(classWts[i], pred[:, i], yOH[:, i])
-                    # lossWts[1]*lossFun(classWts[i], auxPred[:, i],
-                    #                    yOH[:, i])
-                loss = lossWts[0]*loss + lossWts[1]*torch.sum(conicity)
+                    loss += (lossWts[0]*lossFun(classWts[i], pred[:, i],
+                                                yOH[:, i])
+                             + lossWts[1]*lossFun(classWts[i], auxPred[:, i],
+                                                  yOH[:, i]))
+                loss = loss + lossWts[2]*torch.sum(conicity)
                 loss.backward()
                 optimizer.step()
             elif process == 'val' or process == 'tst':
@@ -152,7 +153,7 @@ def main():
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize, 'none')
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    num_classes=2, downsample_freq=1).cuda()
-    model = nn.DataParallel(model)
+    # model = nn.DataParallel(model)
     if args.loadModelFlag:
         print(args.saveName)
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
@@ -160,9 +161,9 @@ def main():
             return 0
         elif successFlag == 1:
             print("Model loaded successfully")
-    classWts = aux.getClassBalancedWt(0.9999, [1203, 1176+390])
+#    classWts = aux.getClassBalancedWt(0.9999, [1203, 1176+390])
     # classWts = aux.getClassBalancedWt(0.9999, [4610, 461])
-    # classWts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
+    classWts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
