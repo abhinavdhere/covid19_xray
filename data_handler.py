@@ -78,6 +78,23 @@ class DataLoader:
                     file_list.append(file_name)
         return file_list
 
+    def set_random_aug(self, name):
+        '''Set random augmentation flag while maintaining 50% chance of having
+        normal (i.e. no aug) and 50% of any other augmentation.
+
+        Args:
+            name (str): name of image
+        Returns:
+            name_w_code (str): name with augmentation code appended
+        '''
+        augment_flag = np.random.choice([0, 1])
+        if augment_flag:
+            aug_name = np.random.choice(self._tmp_aug_names)
+        else:
+            aug_name = 'normal'
+        name_w_code = name+'_'+aug_name
+        return name_w_code
+
     def set_augmentations(self):
         """Set appropriate augmentations by appending codes to file names.
 
@@ -88,9 +105,11 @@ class DataLoader:
         aug_list = []
         if self.data_type == 'trn':
             if self._aug_setup == 'random':
+                self._tmp_aug_names = self._aug_names.copy()
+                self._tmp_aug_names.remove('normal')
                 for name in self._file_list:
-                    aug_name = np.random.choice(self._aug_names)
-                    aug_list.append(name+'_'+aug_name)
+                    name_w_code = self.set_random_aug(name)
+                    aug_list.append(name_w_code)
             elif self._aug_setup == 'all':
                 for name in self._file_list:
                     aug_list += [name + '_' + aug_name for aug_name in
@@ -98,13 +117,15 @@ class DataLoader:
             elif self._aug_setup == 'random_class0_all_class1':
                 aug_list_classA = []
                 aug_list_classB = []
+                self._tmp_aug_names = self._aug_names.copy()
+                self._tmp_aug_names.remove('normal')
                 for name in self._file_list:
                     if int(name.split('_')[1]) == 2:
                         aug_list_classA += [name+'_'+aug_name for aug_name in
                                             self._aug_names]
                     else:
-                        aug_name = np.random.choice(self._aug_names)
-                        aug_list_classB.append(name+'_'+aug_name)
+                        name_w_code = self.set_random_aug(name)
+                        aug_list_classB.append(name_w_code)
                 if self._undersample:
                     if not self._sample_size:
                         raise ValueError('Sample size not passed for'
@@ -112,7 +133,9 @@ class DataLoader:
                     aug_list_classB = np.random.choice(aug_list_classB,
                                                        (self._sample_size,),
                                                        replace=False)
-                aug_list = aug_list_classA + aug_list_classB.tolist()
+                    aug_list = aug_list_classA + aug_list_classB.tolist()
+                else:
+                    aug_list = aug_list_classA + aug_list_classB
             aug_list = np.random.permutation(aug_list)
         else:
             aug_list += [name+'_normal' for name in self._file_list]
@@ -208,7 +231,7 @@ class DataLoader:
                     lbl = 1
                 name_w_path = os.path.join(config.PATH, file_name)
                 img = self.preprocess_data(name_w_path, aug_name,
-                                           segment_lung=True)
+                                           segment_lung=False)
                 # pdb.set_trace()
                 if torch.std(img) == 0 or not torch.isfinite(img).all():
                     raise ValueError('Image intensity inappropriate'
