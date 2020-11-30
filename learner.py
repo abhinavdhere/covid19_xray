@@ -47,6 +47,7 @@ def runModel(data_handler, model, optimizer, classWts, lossWts):
                 model.train()
                 # pred, auxPred = model.forward(X)
                 pred, auxPred, conicity = model.forward(X)
+                conicity = torch.abs(conicity)
                 pred = F.softmax(pred, 1)
                 auxPred = F.softmax(auxPred, 1)
                 loss = 0
@@ -62,6 +63,7 @@ def runModel(data_handler, model, optimizer, classWts, lossWts):
                 model.eval()
                 with torch.no_grad():
                     pred, conicity = model.forward(X)
+                    conicity = torch.abs(conicity)
                     pred = F.softmax(pred, 1)
                     loss = 0
                     for i in range(2):
@@ -71,8 +73,8 @@ def runModel(data_handler, model, optimizer, classWts, lossWts):
                     loss = lossWts[0]*loss + lossWts[1]*torch.sum(conicity)
             runningLoss += loss
             hardPred = torch.argmax(pred, 1)
-            # hardPred = (pred[:, 1] > 0.38699).int()
-            # hardPred = (pred[:, 1] > 0.00415).int()
+            # hardPred = (pred[:, 1] > 0.983).int()
+            # hardPred = (pred[:, 1] > 0.2181).int()
             predList.append(hardPred.cpu())
             softPredList.append(pred.detach().cpu())
             labelList.append(y.cpu())
@@ -92,7 +94,13 @@ def runModel(data_handler, model, optimizer, classWts, lossWts):
                                                              softPredList[:,
                                                                           1],
                                                              pos_label=1)
+            # precision, recall, thresholds = \
+            #     sklearn.metrics.precision_recall_curve(labelList,
+            #                                            softPredList[:, 1],
+            #                                            pos_label=1)
             optimal_idx = np.argmax(tpr - fpr)
+            # fscore = (2 * precision * recall) / (precision + recall)
+            # optimal_idx = np.argmax(fscore)
             optimal_threshold = thresholds[optimal_idx]
             print("Threshold value is:", optimal_threshold)
         metrics = config.Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
@@ -110,6 +118,8 @@ def two_stage_inference(data_handler, model1, model2):
     for m in range(num_batches):
         X, y, file_name = data_handler.datagen.__next__()
         # yOH = aux.toCategorical(y).cuda()
+        model1.eval()
+        model2.eval()
         pred, conicity = model1.forward(X)
         pred = F.softmax(pred, 1)
         hardPred = torch.argmax(pred, 1)
@@ -145,15 +155,17 @@ def main():
     # Inits
     aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
                  'blur', 'sharpen', 'translate']
-    trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize, 'all',
-                                  # 'random_class0_all_class1',
-                                  undersample=False, sample_size=None,
+    trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
+                                  # 'all',
+                                  'random_class0_all_class1',
+                                  undersample=True, sample_size=3000,
                                   aug_names=aug_names)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize, 'none')
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize, 'none')
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    num_classes=2, downsample_freq=1).cuda()
-    # model = nn.DataParallel(model)
+# print(summary(model, torch.zeros((1, 1, 512, 512)).cuda(), show_input=True))
+    model = nn.DataParallel(model)
     if args.loadModelFlag:
         print(args.saveName)
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
@@ -162,8 +174,9 @@ def main():
         elif successFlag == 1:
             print("Model loaded successfully")
 #    classWts = aux.getClassBalancedWt(0.9999, [1203, 1176+390])
-    # classWts = aux.getClassBalancedWt(0.9999, [4610, 461])
-    classWts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
+    classWts = aux.getClassBalancedWt(0.9999, [4610, 461])
+    # classWts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
+    # classWts = aux.getClassBalancedWt(0.9999, [4810, 4810])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
@@ -200,10 +213,10 @@ def main():
                               num_classes=2, downsample_freq=1).cuda()
         model_stage2 = nn.DataParallel(model_stage2)
         flg1 = aux.loadModel('chkpt', model_stage1,
-                             'pd_stage1_noLungSeg_allAug_fold'
+                             'stage1_noLungSeg_allAug_wAux_absConicity_fold'
                              + str(args.foldNum))
-        flg2 = aux.loadModel('chkpt', model_stage2,
-                             'pd_stage2_noLungSeg_allAug_fold'
+        flg2 = aux.loadModel('main', model_stage2,
+                             'stage2_noLungSeg_allAug_wAux_absConicity_fold'
                              + str(args.foldNum))
         print(flg1, flg2)
         two_stage_inference(val_data_handler, model_stage1, model_stage2)

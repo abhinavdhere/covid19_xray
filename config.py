@@ -9,15 +9,17 @@ Attributes:
 """
 from collections import namedtuple
 
-PATH = '/home/abhinav/CXR_datasets/PDCOVIDNet_data/all_images'
-# COVIDx_data/all_data'
+# PATH = '/home/abhinav/CXR_datasets/PDCOVIDNet_data/all_images'
+# PATH = '/home/abhinav/CXR_datasets/RSNA_dataset/all_images'
+PATH = '/home/abhinav/CXR_datasets/COVIDx_data/all_data'
 Metrics = namedtuple('Metrics', ['Loss', 'Acc', 'F1', 'AUROC', 'AUPRC',
                                  'fpr_tpr_arr', 'precision_recall_arr'])
 IMG_DIMS = (512, 512)
-DATASET_LIST = ['sirm', 'cohen', 'kg']
-# DATASET_LIST = ['actmed', 'fig1', 'sirm', 'cohen', 'rsna']
-TASK = 'normal_vs_pneumonia'
-# TASK = 'pneumonia_vs_covid'
+# DATASET_LIST = ['rsna']
+# DATASET_LIST = ['sirm', 'cohen', 'kg']
+DATASET_LIST = ['actmed', 'fig1', 'sirm', 'cohen', 'rsna']
+# TASK = 'normal_vs_pneumonia'
+TASK = 'pneumonia_vs_covid'
 # TASK = 'two_stage'
 
 # # Used variables

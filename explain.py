@@ -12,10 +12,11 @@ import pandas as pd
 from aux import loadModel
 from learner import DataLoader
 import matplotlib.pyplot as plt
-import pdb
+# import pdb
 
 
 def load_BB(fName, img):
+    img = cv2.cvtColor(img[0], cv2.COLOR_GRAY2RGB)
     name_orig = fName[0].split('_')[-2].split('.')[0]
     bb_data = pd.read_csv('/home/abhinav/CXR_datasets/RSNA_dataset/'
                           'stage_2_train_labels.csv').values
@@ -38,8 +39,8 @@ num_batches = val_data_handler.num_batches
 model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                downsample_freq=1).cuda()
 model = nn.DataParallel(model)
-successFlag = loadModel('main', model, model_name)
-get_bb_flag = False
+successFlag = loadModel('chkpt', model, model_name)
+get_bb_flag = True
 model.eval()
 for i in range(num_batches):
     X, y, fName = val_data_handler.datagen.__next__()
@@ -57,10 +58,10 @@ for i in range(num_batches):
         img = X[0, :, :, :].detach().cpu().numpy()
         if get_bb_flag:
             img = load_BB(fName, img)
-        pdb.set_trace()
+        # pdb.set_trace()
         pltObj = viz.visualize_image_attr(np.expand_dims(attrRescaled, -1),
                                           img, method="blended_heat_map",
-                                          cmap='gray', sign="absolute_value",
+                                          cmap='jet', sign="absolute_value",
                                           show_colorbar=True,
                                           title="Overlayed Attributions")
         pltObj[0].savefig('./gradcam_misc/'+model_name+'_'

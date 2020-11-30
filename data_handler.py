@@ -4,6 +4,7 @@ import os
 import numpy as np
 import torch
 import cv2
+# import pydicom as dcm
 
 import config
 from augment_tools import augment
@@ -63,10 +64,12 @@ class DataLoader:
         if self.data_type == 'val':
             flist_name = (self.path.rsplit('/', 1)[0]+'/file_lists/'
                           '5fold_split_val.txt')
+        # 'val.txt')
         else:
             flist_name = (self.path.rsplit('/', 1)[0]+'/file_lists/'
                           '5fold_split_' + str(self.fold_num)
                           + '_' + self.data_type + '.txt')
+        # + self.data_type + '.txt')
         all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
         file_list = []
         for file_name in all_filelist:
@@ -164,6 +167,8 @@ class DataLoader:
                 with required preprocessing.
         """
         img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
+        # img = dcm.dcmread(full_name)
+        # img = img.pixel_array
         if self.in_channels == 3:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
             img = img.permute(2, 0, 1)
