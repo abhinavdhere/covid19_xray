@@ -5,38 +5,44 @@ import random
 import numpy as np
 
 
-def augment(im, aug_type):
+def augment(im, aug_type, file_type='data'):
+    if file_type == 'label':
+        mode = 'nearest'
+    else:
+        mode = 'bilinear'
     if aug_type == 'normal':
         im = im
     # elif aug_type == 'rotated':
     #     rotAng = np.random.choice([-10, 10])
     #     im = korniaAffine(im, rotAng, 'rotate')
-    elif aug_type == 'gaussNoise':
+    elif aug_type == 'gaussNoise' and file_type == 'data':
         im = augment_gaussian_noise(im, (0.15, 0.3))
     elif aug_type == 'mirror':
         im = torch.flip(im, [-1])
     elif aug_type not in ['gaussianNoise', 'mirror']:
         im = im.unsqueeze(0)
-        if aug_type == 'blur':
+        if aug_type == 'blur' and file_type == 'data':
             im = kornia.filters.gaussian_blur2d(im, (7, 7), (3, 3))
-        elif aug_type == 'sharpen':
+        elif aug_type == 'sharpen' and file_type == 'data':
             im_blur = kornia.filters.gaussian_blur2d(im, (17, 17), (11, 11))
             difference = im - im_blur
             im = im + difference
-        elif aug_type == 'minpool':
-            maxpool = nn.MaxPool2d((7,7), stride=1, padding=3)
+        elif aug_type == 'minpool' and file_type == 'data':
+            maxpool = nn.MaxPool2d((7, 7), stride=1, padding=3)
             im = (-1)*maxpool((-1)*im)
         elif aug_type == 'translate':
             motion_x = np.random.choice([-20, -10, 10, 20])
             motion_y = np.random.choice([-20, -10, 10, 20])
             translation = torch.Tensor(np.array([[motion_x,
                                                   motion_y]])).cuda()
-            im = kornia.geometry.transform.translate(im, translation)
+            im = kornia.geometry.transform.translate(im, translation,
+                                                     mode=mode)
         elif aug_type == 'rotate':
             rotate_angle = np.random.choice([-10, 10])
             center_x, center_y = im.shape[1]//2, im.shape[2]//2
             center = torch.Tensor(np.array[[center_x, center_y]]).cuda()
-            im = kornia.geometry.transform.rotate(im, rotate_angle, center)
+            im = kornia.geometry.transform.rotate(im, rotate_angle, center,
+                                                  mode=mode)
         im = im[0]
     return im
 

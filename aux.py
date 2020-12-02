@@ -1,6 +1,7 @@
 ''' Supplmentary functions for learner to use '''
 import numpy as np
 import torch
+from torch.autograd import Function
 import sklearn.metrics
 import argparse
 import os
@@ -128,7 +129,7 @@ def weightedBCE(weight, pred, target):
     return loss
 
 
-class DiceCoeff():
+class DiceCoeff(Function):
     """Dice coeff for individual examples"""
 
     def forward(self, input, target):
@@ -169,7 +170,7 @@ def dice_coeff(input, target):
 
 
 # #--------- Metrics --------------
-def integralDice(pred, gt, k):
+def integral_dice(pred, gt, k):
     '''
     Dice coefficient for multiclass hard thresholded prediction consisting
     of integers instead of binary values.
@@ -218,11 +219,15 @@ def globalAcc(predList, labelList):
 
 
 # #-------- Misc. --------
-def toCategorical(yArr):
+def toCategorical(yArr, *args):
     '''
     One Hot encoding for softmax
     '''
-    y_OH = torch.FloatTensor(yArr.shape[0], 2)
+    if args and args[0] == 'seg':
+            y_OH = torch.FloatTensor(yArr.shape[0], 2, yArr.shape[2],
+                                     yArr.shape[3])
+    else:
+        y_OH = torch.FloatTensor(yArr.shape[0], 2)
     y_OH.zero_()
     y_OH.scatter_(1, yArr, 1)
     return y_OH

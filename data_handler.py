@@ -63,13 +63,13 @@ class DataLoader:
         # allFileList = os.listdir(os.path.join(path, data_type))
         if self.data_type == 'val':
             flist_name = (self.path.rsplit('/', 1)[0]+'/file_lists/'
-                          '5fold_split_val.txt')
-        # 'val.txt')
+                          # '5fold_split_val.txt')
+                          'val.txt')
         else:
             flist_name = (self.path.rsplit('/', 1)[0]+'/file_lists/'
                           '5fold_split_' + str(self.fold_num)
                           + '_' + self.data_type + '.txt')
-        # + self.data_type + '.txt')
+                          # + self.data_type + '.txt')
         all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
         file_list = []
         for file_name in all_filelist:
@@ -169,17 +169,20 @@ class DataLoader:
         img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
         # img = dcm.dcmread(full_name)
         # img = img.pixel_array
-        if self.in_channels == 3:
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-            img = img.permute(2, 0, 1)
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         img = (img - np.mean(img)) / np.std(img)
+        if self.in_channels == 3:
+            if img.dtype == 'float64':
+                img = img.astype('float32')
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+            img = torch.Tensor(img).cuda()
+            img = img.permute(2, 0, 1)
         if segment_lung:
             img = self.apply_seg_mask(img, full_name.split('/')[-1],
                                       crop=True)
-        img = torch.Tensor(img).cuda()
         if self.in_channels == 0:
+            img = torch.Tensor(img).cuda()
             img = img.unsqueeze(0)
         img = augment(img, aug_name)
         return img
@@ -242,6 +245,107 @@ class DataLoader:
                     raise ValueError('Image intensity inappropriate'
                                      '(std is 0 or image has infinity')
                 lbl = torch.Tensor(np.array([lbl])).long()
+                data_arr.append(img)
+                label_arr.append(lbl)
+                file_name_arr.append(file_name_full)
+                count += 1
+                last_batch_flag = ((self.num_batches-batch_count) == 2 and
+                                   count == (len(aug_list) % self.batch_size))
+                if (count == self.batch_size) or last_batch_flag:
+                    yield torch.stack(data_arr),  torch.stack(label_arr),\
+                            file_name_arr
+                    batch_count += 1
+                    count, data_arr, label_arr, file_name_arr = 0, [], [], []
+
+
+class SegDataLoader(DataLoader):
+    """ Data loader for segmentation task. """
+    def get_file_list(self):
+        """Generate list of files as per data_type, dataset and task.
+
+        Returns:
+            file_list (List[str]): original list of file names from directory
+        """
+        if self.data_type == 'val':
+            flist_name = (self.path.rsplit('/', 1)[0]+'/file_lists/'
+                          'val_list.txt')
+        else:
+            flist_name = (self.path.rsplit('/', 1)[0]+'/file_lists/'
+                          + self.data_type + '_list.txt')
+        all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
+        file_list = []
+        for file_name in all_filelist:
+            file_list.append(file_name)
+        return file_list
+
+    def preprocess_data(self, full_name, file_type, aug_name, segment_lung):
+        """ Load images and do preprocessing as required
+
+        Args:
+            full_name (str): name of image with path and without
+                augmentation code
+            file_type (str): 'data' or 'label'
+            aug_name (str): augmentation code (see self.set_augmentations)
+            segment_lung (bool): whether to apply lung segmentation
+
+        Returns:
+            img (torch.Tensor): CUDA tensor of size (in_channels, size0, size1)
+                with required preprocessing.
+        """
+        img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
+        img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
+                         cv2.INTER_AREA)
+        if file_type == 'data':
+            img = (img - np.mean(img)) / np.std(img)
+        if self.in_channels == 3 and file_type == 'data':
+            if img.dtype == 'float64':
+                img = img.astype('float32')
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+            img = torch.Tensor(img).cuda()
+            img = img.permute(2, 0, 1)
+        if segment_lung:
+            img = self.apply_seg_mask(img, full_name.split('/')[-1],
+                                      crop=True)
+        if self.in_channels == 0 or file_type == 'label':
+            img = torch.Tensor(img).cuda()
+            img = img.unsqueeze(0)
+        img = augment(img, aug_name, file_type)
+        return img
+
+    def dataloader(self):
+        """ Generator for yielding batches of data & corresponding labels
+
+        Args:
+            batch_size (int): size of each batch
+
+        Yields:
+            data_arr (torch.Tensor): CUDA tensor of shape (batch_size,
+                in_channels, size0, size1)
+            label_arr (torch.Tensor): tensor of shape(batch_size, in_channels,
+                                      size0, size1)
+            file_name_arr (List[str]): list of images names for images
+                in the batch
+        """
+        while True:
+            aug_list = self.aug_list
+            # print(len(aug_list))
+            count, batch_count, data_arr, label_arr,\
+                file_name_arr = 0, 0, [], [], []
+            for file_name_full in aug_list:
+                file_name = '_'.join(file_name_full.split('_')[:-1])
+                aug_name = file_name_full.split('_')[-1]
+                name_w_path = os.path.join(config.PATH, 'images',
+                                           file_name.split('.')[0]+'.jpeg')
+                lbl_name_w_path = os.path.join(config.PATH, 'labels',
+                                               file_name)
+                img = self.preprocess_data(name_w_path, 'data', aug_name,
+                                           segment_lung=False)
+                lbl = self.preprocess_data(lbl_name_w_path, 'label', aug_name,
+                                           segment_lung=False)
+                if torch.std(img) == 0 or not torch.isfinite(img).all():
+                    raise ValueError('Image intensity inappropriate'
+                                     '(std is 0 or image has infinity')
+                lbl = lbl.cpu().long()
                 data_arr.append(img)
                 label_arr.append(lbl)
                 file_name_arr.append(file_name_full)
