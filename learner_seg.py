@@ -8,16 +8,18 @@ from collections import namedtuple
 
 import torch
 import torch.nn.functional as F
-import torch.nn as nn
-# import torchvision
 from tqdm import trange
+from pytorchcv.model_provider import get_model
+from fastai.vision.models.unet import DynamicUnet
+# import torch.nn as nn
+# import torchvision
 # import pydicom as dcm
 # from pytorch_model_summary import summary
 
 import aux
 from aux import weightedBCE as lossBCE, dice_coeff as lossDice
 from data_handler import SegDataLoader
-from unet import UNet
+# from unet import UNet
 
 
 def runModel(data_handler, model, optimizer, lossWts):
@@ -65,10 +67,10 @@ def runModel(data_handler, model, optimizer, lossWts):
             t.set_postfix(loss=runningLoss.item()/(float(m+1)*batch_size))
             t.update()
         finalLoss = runningLoss/(float(m+1)*batch_size)
-        acc = aux.globalAcc(predList, labelList)
-        acc = acc.item() / (512*512)
+        # acc = aux.globalAcc(predList, labelList)
+        # acc = acc.item() / (512*512)
         dice = runningDice/(m+1)
-        metrics = Metrics(finalLoss.item(), acc, dice.item())
+        metrics = Metrics(finalLoss.item(), 0, dice.item())
         # print(metrics.Acc, metrics.Dice)
         return metrics
 
@@ -97,7 +99,7 @@ def main():
         bestValRecord = None
         logFile = None
     else:
-        bestValRecord, logFile = aux.initLogging(args.saveName)
+        bestValRecord, logFile = aux.initLogging(args.saveName, 'Dice')
         with open(os.path.join('logs', bestValRecord), 'r') as statusFile:
             bestVal = float(statusFile.readline().strip('\n').split()[-1])
     lossWts = tuple(map(float, args.lossWeights.split(',')))
@@ -113,8 +115,14 @@ def main():
                                      'none', in_channels=3)
     tst_data_handler = SegDataLoader('tst', args.foldNum, args.batchSize,
                                      'none', in_channels=3)
-    model = UNet(n_classes=2).cuda()
+    # model = UNet(n_classes=2).cuda()
     # model = nn.DataParallel(model)
+    encoder = get_model('cbam_resnet34')
+    encoder = list(encoder.children())
+    encoder = encoder[-2][:-1]
+    model = DynamicUnet(encoder, 2, (512, 512), norm_type=None,
+                        last_cross=False).cuda()
+    # model.load_state_dict(torch.load('cbam_resnet34_unet_monty_Segment.pth'))
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:
@@ -127,28 +135,34 @@ def main():
     if args.runMode == 'all':
         for epochNum in range(args.initEpochNum, args.initEpochNum
                               + args.nEpochs):
-            trnMetrics = runModel(trn_data_handler, model, optimizer,
-                                  lossWts=lossWts)
-            aux.logMetrics(epochNum, trnMetrics, 'trn', logFile, args.saveName)
+            trn_metrics = runModel(trn_data_handler, model, optimizer,
+                                   lossWts=lossWts)
+            aux.logMetrics(epochNum, trn_metrics, 'trn', logFile,
+                           args.saveName, 'segment')
             torch.save(model.state_dict(), 'savedModels/'+args.saveName+'.pt')
         # epochNum = 0
-            valMetrics = runModel(val_data_handler, model, optimizer,
-                                  lossWts)
-            aux.logMetrics(epochNum, valMetrics, 'val', logFile, args.saveName)
-            if bestValRecord and valMetrics.Dice > bestVal:
-                bestVal = aux.saveChkpt(bestValRecord, bestVal, valMetrics,
-                                        model, args.saveName)
-        tstMetrics = runModel(tst_data_handler, model, optimizer,
-                              lossWts)
-        aux.logMetrics(epochNum, tstMetrics, 'tst', logFile, args.saveName)
+            val_metrics = runModel(val_data_handler, model, optimizer,
+                                   lossWts)
+            aux.logMetrics(epochNum, val_metrics, 'val', logFile,
+                           args.saveName, 'segment')
+            if bestValRecord and val_metrics.Dice > bestVal:
+                bestVal = aux.save_chkpt(bestValRecord, bestVal,
+                                         val_metrics.Dice, 'Dice',
+                                         model, args.saveName)
+        tst_metrics = runModel(tst_data_handler, model, optimizer,
+                               lossWts)
+        aux.logMetrics(epochNum, tst_metrics, 'tst', logFile,
+                       args.saveName, 'segment')
     elif args.runMode == 'val':
-        valMetrics = runModel(val_data_handler, model, optimizer,
-                              lossWts)
-        aux.logMetrics(1, valMetrics, 'val', logFile, args.saveName)
+        val_metrics = runModel(val_data_handler, model, optimizer,
+                               lossWts)
+        aux.logMetrics(1, val_metrics, 'val', logFile,
+                       args.saveName, 'segment')
     elif args.runMode == 'tst':
-        tstMetrics = runModel(tst_data_handler, model, optimizer,
-                              lossWts)
-        aux.logMetrics(1, tstMetrics, 'tst', logFile, args.saveName)
+        tst_metrics = runModel(tst_data_handler, model, optimizer,
+                               lossWts)
+        aux.logMetrics(1, tst_metrics, 'tst', logFile,
+                       args.saveName, 'segment')
 
 
 if __name__ == '__main__':

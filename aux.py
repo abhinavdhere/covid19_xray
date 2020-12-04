@@ -41,17 +41,24 @@ def getOptions():
 
 
 # #--------- Logging and model loading/saving ---------
-def logMetrics(epochNum, metrics, process, logFile, saveName):
+def logMetrics(epochNum, metrics, process, logFile, saveName, task):
     '''
     Print metrics to terminal and save to logfile in a proper format.
     '''
-    line = ('Epoch num. {epochNum:d} \t {process} Loss : {lossVal:.7f};'
-            '{process} Acc : {acc:.3f} ; {process} F1 : {f1:.3f} ; '
-            '{process} AUROC : {auroc:.3f} ; {process} AUPRC :'
-            '{auprc:.3f}\n').format(epochNum=epochNum, process=process,
-                                    lossVal=metrics.Loss, acc=metrics.Acc,
-                                    f1=metrics.F1, auroc=metrics.AUROC,
-                                    auprc=metrics.AUPRC)
+    if task == 'classify':
+        line = ('Epoch num. {epochNum:d} \t {process} Loss : {lossVal:.7f};'
+                '{process} Acc : {acc:.3f} ; {process} F1 : {f1:.3f} ; '
+                '{process} AUROC : {auroc:.3f} ; {process} AUPRC :'
+                '{auprc:.3f}\n').format(epochNum=epochNum, process=process,
+                                        lossVal=metrics.Loss, acc=metrics.Acc,
+                                        f1=metrics.F1, auroc=metrics.AUROC,
+                                        auprc=metrics.AUPRC)
+    elif task == 'segment':
+        line = ('Epoch num. {epochNum:d} \t {process} Loss : {lossVal:.7f}'
+                ' {process} Dice : {dice:.3f}\n').format(epochNum=epochNum,
+                                                         process=process,
+                                                         lossVal=metrics.Loss,
+                                                         dice=metrics.Dice)
     print(line.strip('\n'))
     if logFile:
         with open(os.path.join('logs', logFile), 'a') as f:
@@ -81,20 +88,30 @@ def loadModel(loadModelFlag, model, saveName):
     return successFlag
 
 
-def saveChkpt(bestValRecord, bestVal, metrics, model, saveName):
+def save_chkpt(best_val_record, best_val, metric_val, metric_name, model,
+               savename):
     '''
-    Save checkpoint model
+    Save checkpoint model if performance exceeds previous best.
+
+    Args:
+        best_val_record (str): name of text file storing best_val so far
+        best_val (int): best performance so far by the model in
+                        selected metric as read from best_val_record
+                        text file
+        metric_val (float): curent value of selected metric
+        metric_name: name of metric to compare
     '''
-    diff = metrics.F1 - bestVal
-    bestVal = metrics.F1
-    with open(os.path.join('logs', bestValRecord), 'w') as statusFile:
-        statusFile.write('Best F1 so far: '+str(bestVal))
-    torch.save(model.state_dict(), 'savedModels/chkpt_'+saveName+'.pt')
-    print('Model checkpoint saved since F1 has improved by '+str(diff))
-    return bestVal
+    diff = metric_val - best_val
+    best_val = metric_val
+    with open(os.path.join('logs', best_val_record), 'w') as statusFile:
+        statusFile.write('Best ' + metric_name + ' so far: '+str(best_val))
+    torch.save(model.state_dict(), 'savedModels/chkpt_'+savename+'.pt')
+    print('Model checkpoint saved since ' + metric_name + ' has improved by '
+          + str(diff))
+    return best_val
 
 
-def initLogging(saveName):
+def initLogging(saveName, metric_name):
     '''
     Create files for storing best metric value and logs if not existing
     already. Returns names of the files.
@@ -102,8 +119,8 @@ def initLogging(saveName):
     bestValRecord = 'bestVal_'+saveName+'.txt'
     logFile = 'log_'+saveName+'.txt'
     if not os.path.exists(os.path.join('logs', bestValRecord)):
-        os.system('echo "Best F1 so far: 0.0" > '+os.path.join('logs',
-                                                               bestValRecord))
+        os.system('echo "Best '+metric_name+' so far: 0.0" > '
+                  + os.path.join('logs', bestValRecord))
     if not os.path.exists(os.path.join('logs', logFile)):
         os.system('touch '+os.path.join('logs', logFile))
     return bestValRecord, logFile

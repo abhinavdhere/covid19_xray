@@ -14,6 +14,7 @@ import numpy as np
 import sklearn.metrics
 # import pydicom as dcm
 # from pytorch_model_summary import summary
+# from torchvision.models import resnet18
 import aux
 import config
 from data_handler import DataLoader
@@ -45,7 +46,7 @@ def runModel(data_handler, model, optimizer, classWts, lossWts):
             if process == 'trn':
                 optimizer.zero_grad()
                 model.train()
-                # pred, auxPred = model.forward(X)
+                # pred = model.forward(X)
                 pred, auxPred, conicity = model.forward(X)
                 conicity = torch.abs(conicity)
                 pred = F.softmax(pred, 1)
@@ -62,6 +63,7 @@ def runModel(data_handler, model, optimizer, classWts, lossWts):
             elif process == 'val' or process == 'tst':
                 model.eval()
                 with torch.no_grad():
+                    # pred = model.forward(X)
                     pred, conicity = model.forward(X)
                     conicity = torch.abs(conicity)
                     pred = F.softmax(pred, 1)
@@ -156,15 +158,16 @@ def main():
     aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
                  'blur', 'sharpen', 'translate']
     trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
-                                  # 'all',
-                                  'random_class0_all_class1',
-                                  undersample=True, sample_size=3000,
+                                  'all',
+                                  # 'random_class0_all_class1',
+                                  undersample=False, sample_size=3000,
                                   aug_names=aug_names)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize, 'none')
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize, 'none')
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    num_classes=2, downsample_freq=1).cuda()
 # print(summary(model, torch.zeros((1, 1, 512, 512)).cuda(), show_input=True))
+    # model = resnet18(num_classes=2).cuda()
     model = nn.DataParallel(model)
     if args.loadModelFlag:
         print(args.saveName)
@@ -174,8 +177,8 @@ def main():
         elif successFlag == 1:
             print("Model loaded successfully")
 #    classWts = aux.getClassBalancedWt(0.9999, [1203, 1176+390])
-    classWts = aux.getClassBalancedWt(0.9999, [4610, 461])
-    # classWts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
+    # classWts = aux.getClassBalancedWt(0.9999, [4610, 461])
+    classWts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
     # classWts = aux.getClassBalancedWt(0.9999, [4810, 4810])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
