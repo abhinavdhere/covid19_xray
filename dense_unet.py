@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from utils import unetConv3, Combiner, _make_dense, Transition
+from network_utils import unetConv2, Combiner, _make_dense, Transition
 
 
 class dense_unet_encoder(nn.Module):
@@ -10,7 +10,7 @@ class dense_unet_encoder(nn.Module):
         nFeat = 1
         nLayers = [2, 2, 4, 8]
         isBottleneck = False
-        self.inputLayer = nn.Conv3d(nFeat, 4, 3, stride=2, padding=1)
+        self.inputLayer = nn.Conv2d(nFeat, 4, 3, stride=2, padding=1)
         nFeat = 4  # (3, 3, nSlices)
         self.conv1 = _make_dense(nFeat, growthRate//4, nLayers[0],
                                  isBottleneck)
@@ -45,13 +45,13 @@ class dense_unet_decoder(nn.Module):
         self.combiner = Combiner()
         # +16 due to added channels from encoder, ...
         # ... always 16 due to transition layer
-        self.conv4 = unetConv3(144+16, 128, True)
-        self.upTrans2 = nn.ConvTranspose3d(128, 64, 2, 2)
-        self.conv5 = unetConv3(64+16, 32, True)
-        self.upTrans3 = nn.ConvTranspose3d(32, 16, 2, 2)
-        self.conv6 = unetConv3(16+16, 4, True)
-        self.upTrans4 = nn.ConvTranspose3d(4, 4, 2, 2)
-        self.final = nn.Conv3d(4, nClasses, kernel_size=1)
+        self.conv4 = unetConv2(144+16, 128, True)
+        self.upTrans2 = nn.ConvTranspose2d(128, 64, 2, 2)
+        self.conv5 = unetConv2(64+16, 32, True)
+        self.upTrans3 = nn.ConvTranspose2d(32, 16, 2, 2)
+        self.conv6 = unetConv2(16+16, 4, True)
+        self.upTrans4 = nn.ConvTranspose2d(4, 4, 2, 2)
+        self.final = nn.Conv2d(4, nClasses, kernel_size=1)
 
     def forward(self, x, c1_out, c2_out, c3_out):
         x = self.conv4(self.combiner(c3_out, x))
@@ -67,13 +67,13 @@ class dense_unet_decoder(nn.Module):
 class dense_unet_autoencoder(nn.Module):
     def __init__(self):
         super(dense_unet_autoencoder, self).__init__()
-        self.conv1 = unetConv3(144, 128, True)
-        self.upTrans1 = nn.ConvTranspose3d(128, 64, 2, 2)
-        self.conv2 = unetConv3(64, 32, True)
-        self.upTrans2 = nn.ConvTranspose3d(32, 16, 2, 2)
-        self.conv3 = unetConv3(16, 16, True)
-        self.upTrans3 = nn.ConvTranspose3d(16, 16, 4, 4)
-        self.recons = nn.Conv3d(16, 1, kernel_size=1)
+        self.conv1 = unetConv2(144, 128, True)
+        self.upTrans1 = nn.ConvTranspose2d(128, 64, 2, 2)
+        self.conv2 = unetConv2(64, 32, True)
+        self.upTrans2 = nn.ConvTranspose2d(32, 16, 2, 2)
+        self.conv3 = unetConv2(16, 16, True)
+        self.upTrans3 = nn.ConvTranspose2d(16, 16, 4, 4)
+        self.recons = nn.Conv2d(16, 1, kernel_size=1)
 
     def forward(self, x):
         x = self.conv1(x)

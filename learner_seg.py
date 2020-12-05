@@ -9,8 +9,8 @@ from collections import namedtuple
 import torch
 import torch.nn.functional as F
 from tqdm import trange
-from pytorchcv.model_provider import get_model
-from fastai.vision.models.unet import DynamicUnet
+# from pytorchcv.model_provider import get_model
+# from fastai.vision.models.unet import DynamicUnet
 # import torch.nn as nn
 # import torchvision
 # import pydicom as dcm
@@ -19,6 +19,7 @@ from fastai.vision.models.unet import DynamicUnet
 import aux
 from aux import weightedBCE as lossBCE, dice_coeff as lossDice
 from data_handler import SegDataLoader
+from dense_unet import DUN
 # from unet import UNet
 
 
@@ -41,23 +42,25 @@ def runModel(data_handler, model, optimizer, lossWts):
             if process == 'trn':
                 optimizer.zero_grad()
                 model.train()
-                pred = model.forward(X)
-                pred = F.softmax(pred, 1)
+                pred, recons = model.forward(X)
+                # pred = F.softmax(pred, 1)
                 loss = 0
                 for i in range(2):
                     loss += (lossWts[0]*lossBCE(1, pred[:, i], yOH[:, i])
                              + lossWts[1]*lossDice(pred[:, i], yOH[:, i]))
+                loss += lossWts[2]*F.mse_loss(recons, X)
                 loss.backward()
                 optimizer.step()
             elif process == 'val' or process == 'tst':
                 model.eval()
                 with torch.no_grad():
-                    pred = model.forward(X)
-                    pred = F.softmax(pred, 1)
+                    pred, recons = model.forward(X)
+                    # pred = F.softmax(pred, 1)
                     loss = 0
                     for i in range(2):
                         loss += (lossWts[0]*lossBCE(1, pred[:, i], yOH[:, i])
                                  + lossWts[1]*lossDice(pred[:, i], yOH[:, i]))
+                    loss += lossWts[2]*F.mse_loss(recons, X)
             runningLoss += loss
             hardPred = torch.argmax(pred, 1)
             runningDice += aux.integral_dice(hardPred, yOH[:, 1], 1)
@@ -110,19 +113,15 @@ def main():
                                      'all',
                                      # 'random_class0_all_class1',
                                      undersample=False, sample_size=3000,
-                                     aug_names=aug_names, in_channels=3)
+                                     aug_names=aug_names, in_channels=0)
     val_data_handler = SegDataLoader('val', args.foldNum, args.batchSize,
-                                     'none', in_channels=3)
+                                     'none', in_channels=0)
     tst_data_handler = SegDataLoader('tst', args.foldNum, args.batchSize,
-                                     'none', in_channels=3)
+                                     'none', in_channels=0)
     # model = UNet(n_classes=2).cuda()
     # model = nn.DataParallel(model)
-    encoder = get_model('cbam_resnet34')
-    encoder = list(encoder.children())
-    encoder = encoder[-2][:-1]
-    model = DynamicUnet(encoder, 2, (512, 512), norm_type=None,
-                        last_cross=False).cuda()
     # model.load_state_dict(torch.load('cbam_resnet34_unet_monty_Segment.pth'))
+    model = DUN().cuda()
     if args.loadModelFlag:
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
         if successFlag == 0:
@@ -168,3 +167,10 @@ def main():
 if __name__ == '__main__':
     Metrics = namedtuple('Metrics', ['Loss', 'Acc', 'Dice'])
     main()
+
+    # encoder = get_model('cbam_resnet34')
+    # encoder = list(encoder.children())
+    # encoder = encoder[-2][:-1]
+    # model = DynamicUnet(encoder, 2, (512, 512), norm_type=None,
+    #                     last_cross=False).cuda()
+
