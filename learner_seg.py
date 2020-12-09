@@ -4,6 +4,7 @@ options from user and runs training.
 '''
 import os
 from collections import namedtuple
+from enum import Enum
 # import pdb
 
 import torch
@@ -21,7 +22,7 @@ import aux
 from aux import weightedBCE as lossBCE, dice_coeff as lossDice
 from data_handler import SegDataLoader
 # from dense_unet import DUN
-from unet import UNet
+# from unet import UNet
 
 
 def runModel(data_handler, model, optimizer, lossWts):
@@ -123,8 +124,8 @@ def main():
     encoder = resnext50_32x4d(pretrained=True)
     # encoder = encoder[:-2]
     encoder = nn.Sequential(*list(encoder.children())[:-2])
-    model = DynamicUnet(encoder, 2, (512, 512), norm_type=None,
-                        last_cross=False).cuda()
+    model = DynamicUnet(encoder, 2, (256, 256), norm_type=NormType.Batch,
+                        self_attention=True, last_cross=False).cuda()
     # model.load_state_dict(torch.load('cbam_resnet34_unet_monty_Segment.pth'))
     # model = DUN().cuda()
     # model = nn.DataParallel(model)
@@ -171,6 +172,8 @@ def main():
 
 
 if __name__ == '__main__':
+    NormType = Enum('NormType', 'Batch BatchZero Weight Spectral Instance'
+                    'InstanceZero')
     Metrics = namedtuple('Metrics', ['Loss', 'Acc', 'Dice'])
     main()
 
@@ -179,4 +182,3 @@ if __name__ == '__main__':
     # encoder = encoder[-2][:-1]
     # model = DynamicUnet(encoder, 2, (512, 512), norm_type=None,
     #                     last_cross=False).cuda()
-
