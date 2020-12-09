@@ -48,7 +48,7 @@ def runModel(data_handler, model, optimizer, classWts, lossWts):
                 model.train()
                 # pred = model.forward(X)
                 pred, auxPred, conicity = model.forward(X)
-                conicity = torch.abs(conicity)
+                # conicity = torch.abs(conicity)
                 pred = F.softmax(pred, 1)
                 auxPred = F.softmax(auxPred, 1)
                 loss = 0
@@ -65,7 +65,7 @@ def runModel(data_handler, model, optimizer, classWts, lossWts):
                 with torch.no_grad():
                     # pred = model.forward(X)
                     pred, conicity = model.forward(X)
-                    conicity = torch.abs(conicity)
+                    # conicity = torch.abs(conicity)
                     pred = F.softmax(pred, 1)
                     loss = 0
                     for i in range(2):
@@ -158,9 +158,9 @@ def main():
     aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
                  'blur', 'sharpen', 'translate']
     trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
-                                  'all',
-                                  # 'random_class0_all_class1',
-                                  undersample=False, sample_size=3000,
+                                  # 'all',
+                                  'random_class0_all_class1',
+                                  undersample=True, sample_size=3000,
                                   aug_names=aug_names)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize, 'none')
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize, 'none')

@@ -28,6 +28,7 @@ class ResBlock(nn.Module):
         super(ResBlock, self).__init__()
         self.attention = attention
         self.downsample = downsample
+        self.attn_scaler = nn.Parameter(torch.Tensor([1]))
         if self.downsample:
             stride = 2
             self.down_conv = nn.Conv2d(init_feats, feats, kernel_size=1,
@@ -56,11 +57,15 @@ class ResBlock(nn.Module):
         if self.downsample:
             identity = self.down_conv(identity)
         if self.attention:
-            out = torch.sigmoid(out)
-            out = identity*out
-        res = identity+out
+            attn = torch.sigmoid(out)
+            attn_out = self.attn_scaler*identity*attn
+            # out = torch.sigmoid(out)
+            # out = identity*out
+            res = identity+out+attn_out
+        else:
+            res = identity+out
         res = F.relu(res)
-        return res, out
+        return res, attn
 
 
 class AuxClassifier(nn.Module):
