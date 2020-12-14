@@ -37,6 +37,8 @@ def getOptions():
     parser.add_argument("--runMode", help="all : trn, val, tst \n trn: train"
                         "only \n val: val only \n tst: test only", type=str,
                         default="all")
+    parser.add_argument("--amp", help="Whether mixed precision will be used"
+                        ". Valid values are True or False", default='False')
     return parser
 
 
@@ -47,18 +49,20 @@ def logMetrics(epochNum, metrics, loss_list, process, logFile, task):
     '''
     if task == 'classify':
         line = (
-            f'Epoch num. - {epochNum} {process}'
-            f' Main_BCE : {loss_list["main_bce"]:.5f} ;'
-            f' Aux_loss : {loss_list["aux_bce"]:.5f} ;'
-            f' Conicity : {loss_list["conicity":.5f]} ;'
+            f'Epoch num. {epochNum} - {process}'
+            f' Main_BCE : {loss_list["main_bce"]:.6f} ;'
+            f' Aux_loss : {loss_list["aux_bce"]:.6f} ;'
+            f' Conicity : {loss_list["conicity"]:.6f]} ;'
             f' Acc : {metrics.Acc:.3f} ; F1 : {metrics.F1:.3f} ;'
             f' AUROC : {metrics.AUROC:.3f} ;  AUPRC : {metrics.AUPRC}\n'
         )
     elif task == 'segment':
         line = (
-            f'Epoch num. - {epochNum} {process} BCE : {loss_list["bce"]} ;'
-            f' Dice_loss : {loss_list["dice"]} ; MSE : {loss_list["mse"]} ;'
-            f' Dice_score : {metrics.Dice:.3f}\n'
+            f'Epoch num. {epochNum} - {process}'
+            f' BCE : {loss_list["bce"]:.6f} ;'
+            f' Dice_loss : {loss_list["dice"]:.6f} ;'
+            f' MSE : {loss_list["mse"]:.6f} ;'
+            f' Dice_score : {metrics.Dice:.4f}\n'
         )
     print(line.strip('\n'))
     if logFile:
