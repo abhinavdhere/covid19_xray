@@ -6,6 +6,7 @@ import torch
 import cv2
 # import pydicom as dcm
 
+import aux
 import config
 from augment_tools import augment
 
@@ -62,14 +63,12 @@ class DataLoader:
         """
         # allFileList = os.listdir(os.path.join(path, data_type))
         if self.data_type == 'val':
-            flist_name = (self.path.rsplit('/', 1)[0]+'/file_lists/'
+            flist_name = (config.PATH_FLIST + '/val.txt')
                           # '5fold_split_val.txt')
-                          'val.txt')
         else:
-            flist_name = (self.path.rsplit('/', 1)[0]+'/file_lists/'
-                          '5fold_split_' + str(self.fold_num)
-                          + '_' + self.data_type + '.txt')
-                          # + self.data_type + '.txt')
+            flist_name = (config.PATH_FLIST + '/' + self.data_type + '.txt')
+                          # + '5fold_split_' + str(self.fold_num)
+                          # + '_' + self.data_type + '.txt')
         all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
         file_list = []
         for file_name in all_filelist:
@@ -267,11 +266,10 @@ class SegDataLoader(DataLoader):
             file_list (List[str]): original list of file names from directory
         """
         if self.data_type == 'val':
-            flist_name = (self.path.rsplit('/', 1)[0]+'/file_lists/'
-                          'val_list.txt')
+            flist_name = (config.PATH_FLIST + '/val_list.txt')
         else:
-            flist_name = (self.path.rsplit('/', 1)[0]+'/file_lists/'
-                          + self.data_type + '_list.txt')
+            flist_name = (config.PATH_FLIST
+                          + '/' + self.data_type + '_list.txt')
         all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
         file_list = []
         for file_name in all_filelist:
@@ -296,6 +294,7 @@ class SegDataLoader(DataLoader):
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         if file_type == 'data':
+            img = aux.BCET(0, 255, 86, img)  # BCET contrast enhancement
             img = (img - np.mean(img)) / np.std(img)
         if self.in_channels == 3 and file_type == 'data':
             if img.dtype == 'float64':
@@ -303,9 +302,6 @@ class SegDataLoader(DataLoader):
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
             img = torch.Tensor(img).cuda()
             img = img.permute(2, 0, 1)
-        if segment_lung:
-            img = self.apply_seg_mask(img, full_name.split('/')[-1],
-                                      crop=True)
         if self.in_channels == 0 or file_type == 'label':
             img = torch.Tensor(img).cuda()
             img = img.unsqueeze(0)
