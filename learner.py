@@ -19,7 +19,8 @@ import aux
 import config
 from data_handler import DataLoader
 from aux import weightedBCE as lossFun
-from model import ResNet
+# from model import ResNet
+from exp_models import RobustDenseNet
 # from unet import UNet
 # from resnet import resnet18
 
@@ -27,30 +28,35 @@ from model import ResNet
 def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
                          process, amp):
     """ Run prediction and return losses """
-    if amp:
-        with torch.cuda.amp.autocast():
-            if process == 'trn':
-                pred, aux_pred, conicity = model.forward(X)
-                aux_pred = F.softmax(aux_pred, 1)
-            else:
-                pred, conicity = model.forward(X)
+    # if amp:
+    #     with torch.cuda.amp.autocast():
+    if process == 'trn':
+        # pred, aux_pred, conicity = model.forward(X)
+        pred, aux_pred = model.forward(X)
+        aux_pred = F.softmax(aux_pred, 1)
     else:
-            if process == 'trn':
-                pred, aux_pred, conicity = model.forward(X)
-                aux_pred = F.softmax(aux_pred, 1)
-            else:
-                pred, conicity = model.forward(X)
+        # pred, conicity = model.forward(X)
+        pred = model.forward(X)
+    # else:
+    #         if process == 'trn':
+    #             pred, aux_pred, conicity = model.forward(X)
+    #             aux_pred = F.softmax(aux_pred, 1)
+    #         else:
+    #             pred, conicity = model.forward(X)
     # conicity = torch.abs(conicity)
     pred = F.softmax(pred, 1)
     loss = 0
     for i in range(2):
         main_bce_loss = lossFun(class_wts[i], pred[:, i], y_OH[:, i])
-        main_aux_loss = lossFun(class_wts[i], aux_pred[:, i], y_OH[:, i])
-        loss += (loss_wts[0]*main_bce_loss + loss_wts[1]*main_aux_loss)
+        if process == 'trn':
+            main_aux_loss = lossFun(class_wts[i], aux_pred[:, i], y_OH[:, i])
+            loss += (loss_wts[0]*main_bce_loss + loss_wts[1]*main_aux_loss)
+            loss_list['aux_bce'] += main_aux_loss
+        else:
+            loss += loss_wts[0]*main_bce_loss
         loss_list['main_bce'] += main_bce_loss
-        loss_list['aux_bce'] += main_aux_loss
-    loss = loss + loss_wts[2]*torch.sum(conicity)
-    loss_list['conicity'] += torch.sum(conicity)
+    # loss = loss + loss_wts[2]*torch.sum(conicity)
+    # loss_list['conicity'] += torch.sum(conicity)
     return pred, loss, loss_list
 
 
@@ -62,7 +68,8 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, amp):
     batch_size = data_handler.batch_size
     process = data_handler.data_type
     running_loss = 0
-    loss_list = {'main_bce': 0, 'aux_bce': 0, 'conicity': 0}
+    # loss_list = {'main_bce': 0, 'aux_bce': 0, 'conicity': 0}
+    loss_list = {'main_bce': 0, 'aux_bce': 0}
     pred_list = []
     label_list = []
     softpred_list = []
@@ -96,7 +103,7 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, amp):
                     # pred = model.forward(X)
                     pred, loss, loss_list = predict_compute_loss(
                         X, model, y_onehot, class_wts, loss_wts, loss_list,
-                        process
+                        process, amp
                     )
             running_loss += loss
             hardPred = torch.argmax(pred, 1)
@@ -136,7 +143,7 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, amp):
                                  precision_recall_arr)
         # print(metrics.Acc, metrics.F1)
         # metrics = config.Metrics(finalLoss, acc, f1, 0, 0, None, None)
-        return metrics
+        return metrics, loss_list
 
 
 def two_stage_inference(data_handler, model1, model2):
@@ -169,6 +176,7 @@ def two_stage_inference(data_handler, model1, model2):
 
 def main():
     # Take options and hyperparameters from user
+    torch.autograd.set_detect_anomaly(True)
     parser = aux.getOptions()
     args = parser.parse_args()
     if args.saveName is None:
@@ -189,14 +197,17 @@ def main():
                                   'random',
                                   # 'random_class0_all_class1',
                                   undersample=False, sample_size=2000,
-                                  aug_names=aug_names)
-    val_data_handler = DataLoader('val', args.foldNum, args.batchSize, 'none')
-    tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize, 'none')
-    model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
-                   num_classes=2, downsample_freq=1).cuda()
+                                  aug_names=aug_names, in_channels=3)
+    val_data_handler = DataLoader('val', args.foldNum, args.batchSize,
+                                  'none', in_channels=3)
+    tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize,
+                                  'none', in_channels=3)
+    # model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
+    #                num_classes=2, downsample_freq=1).cuda()
+    model = RobustDenseNet(pretrained=True, num_classes=2).cuda()
 # print(summary(model, torch.zeros((1, 1, 512, 512)).cuda(), show_input=True))
     # model = resnet18(num_classes=2).cuda()
-    model = nn.DataParallel(model)
+    # model = nn.DataParallel(model)
     if args.loadModelFlag:
         print(args.saveName)
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
@@ -216,39 +227,39 @@ def main():
     if args.runMode == 'all':
         for epochNum in range(args.initEpochNum, args.initEpochNum
                               + args.nEpochs):
-            trnMetrics = run_model(
+            trnMetrics, trn_loss_list = run_model(
                 trn_data_handler, model, optimizer, class_wts,
                 loss_wts=loss_wts, amp=amp
             )
-            aux.logMetrics(epochNum, trnMetrics, 'trn', logFile,
-                           args.saveName, 'classify')
+            aux.logMetrics(epochNum, trnMetrics, trn_loss_list, 'trn', logFile,
+                           'classify')
             torch.save(model.state_dict(), 'savedModels/'+args.saveName+'.pt')
         # epochNum = 0
-            valMetrics = run_model(
+            valMetrics, val_loss_list = run_model(
                 val_data_handler, model, optimizer, class_wts, loss_wts, amp
             )
-            aux.logMetrics(epochNum, valMetrics, 'val', logFile,
-                           args.saveName, 'classify')
+            aux.logMetrics(epochNum, valMetrics, val_loss_list, 'val', logFile,
+                           'classify')
             if bestValRecord and valMetrics.F1 > bestVal:
                 bestVal = aux.save_chkpt(bestValRecord, bestVal, valMetrics.F1,
                                          'F1', model, args.saveName)
-        tstMetrics = run_model(
+        tstMetrics, tst_loss_list = run_model(
             tst_data_handler, model, optimizer, class_wts, loss_wts, amp
         )
-        aux.logMetrics(epochNum, tstMetrics, 'tst', logFile,
-                       args.saveName, 'classify')
+        aux.logMetrics(epochNum, tstMetrics, tst_loss_list, 'tst', logFile,
+                       'classify')
     elif args.runMode == 'val':
-        valMetrics = run_model(
+        valMetrics, val_loss_list = run_model(
             val_data_handler, model, optimizer, class_wts, loss_wts, amp
         )
-        aux.logMetrics(1, valMetrics, 'val', logFile,
-                       args.saveName, 'classify')
+        aux.logMetrics(1, valMetrics, val_loss_list, 'val', logFile,
+                       'classify')
     elif args.runMode == 'tst':
-        tstMetrics = run_model(
+        tstMetrics, tst_loss_list = run_model(
             tst_data_handler, model, optimizer, class_wts, loss_wts, amp
         )
-        aux.logMetrics(1, tstMetrics, 'tst', logFile,
-                       args.saveName, 'classify')
+        aux.logMetrics(1, tstMetrics, tst_loss_list, 'tst', logFile,
+                       'classify')
     elif args.runMode == 'two_stage_inference':
         model_stage1 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                               num_classes=2, downsample_freq=1).cuda()
