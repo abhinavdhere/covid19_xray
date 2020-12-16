@@ -19,7 +19,7 @@ import aux
 import config
 from data_handler import DataLoader
 from aux import weightedBCE as lossFun
-# from model import ResNet
+from model import ResNet
 from exp_models import RobustDenseNet
 # from unet import UNet
 # from resnet import resnet18
@@ -156,10 +156,13 @@ def two_stage_inference(data_handler, model1, model2):
         # y_onehot = aux.toCategorical(y).cuda()
         model1.eval()
         model2.eval()
-        pred, conicity = model1.forward(X)
+        # pred, conicity = model1.forward(X)
+        pred = model1.forward(X)
         pred = F.softmax(pred, 1)
         hardPred = torch.argmax(pred, 1)
         if hardPred[0]:
+            X = X[:, 0, :, :]
+            X = X.unsqueeze(1)
             pred, _ = model2.forward(X)
             pred = F.softmax(pred, 1)
             hardPred = torch.argmax(pred, 1)
@@ -261,14 +264,16 @@ def main():
         aux.logMetrics(1, tstMetrics, tst_loss_list, 'tst', logFile,
                        'classify')
     elif args.runMode == 'two_stage_inference':
-        model_stage1 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
-                              num_classes=2, downsample_freq=1).cuda()
-        model_stage1 = nn.DataParallel(model_stage1)
+        model_stage1 = RobustDenseNet(pretrained=True, num_classes=2).cuda()
+        # model_stage1 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
+        #                       num_classes=2, downsample_freq=1).cuda()
+        # model_stage1 = nn.DataParallel(model_stage1)
         model_stage2 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                               num_classes=2, downsample_freq=1).cuda()
         model_stage2 = nn.DataParallel(model_stage2)
         flg1 = aux.loadModel('chkpt', model_stage1,
-                             'stage1_covidx_split1')
+                             'stage1_covidx_split1_densenet121_wAux')
+# 'stage1_covidx_split1')
         flg2 = aux.loadModel('chkpt', model_stage2,
                              'stage2_covidx_split1')
         print(flg1, flg2)

@@ -5,12 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class SEModule(nn.Module):
-    '''Squeeze and excitation module for weighted average of attention maps'''
-    def __init__(self):
-        super(SEModule, self).__init__()
-
-
 class ResBlock(nn.Module):
     ''' Single residual block with variable number of conv layers.
     Attention can be turned on or off.
@@ -74,7 +68,7 @@ class AuxClassifier(nn.Module):
         self.conv0 = nn.Conv2d(in_channels, in_channels*4, kernel_size=3,
                                stride=4, padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.final = nn.Linear(512, num_classes)
+        self.final = nn.Linear(in_channels*4, num_classes)
 
     def forward(self, x):
         x = F.relu(self.conv0(x))
