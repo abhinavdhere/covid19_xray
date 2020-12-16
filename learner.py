@@ -18,7 +18,7 @@ import sklearn.metrics
 import aux
 import config
 from data_handler import DataLoader
-from aux import weightedBCE as lossFun
+# from aux import weightedBCE as lossFun
 from model import ResNet
 from exp_models import RobustDenseNet
 # from unet import UNet
@@ -45,16 +45,19 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
     #             pred, conicity = model.forward(X)
     # conicity = torch.abs(conicity)
     pred = F.softmax(pred, 1)
-    loss = 0
-    for i in range(2):
-        main_bce_loss = lossFun(class_wts[i], pred[:, i], y_OH[:, i])
-        if process == 'trn':
-            main_aux_loss = lossFun(class_wts[i], aux_pred[:, i], y_OH[:, i])
-            loss += (loss_wts[0]*main_bce_loss + loss_wts[1]*main_aux_loss)
-            loss_list['aux_bce'] += main_aux_loss
-        else:
-            loss += loss_wts[0]*main_bce_loss
-        loss_list['main_bce'] += main_bce_loss
+    focal_loss_fn = aux.FocalLoss(class_wts, gamma=5, reduction='sum')
+    # loss = 0
+    # for i in range(2):
+    # main_bce_loss = lossFun(class_wts[i], pred[:, i], y_OH[:, i])
+    main_focal_loss = focal_loss_fn(pred, y_OH)
+    if process == 'trn':
+        main_aux_loss = focal_loss_fn(aux_pred, y_OH)
+    # main_aux_loss = lossFun(class_wts[i], aux_pred[:, i], y_OH[:, i])
+        loss = (loss_wts[0]*main_focal_loss + loss_wts[1]*main_aux_loss)
+        loss_list['aux_focal_loss'] += main_aux_loss
+    else:
+        loss = loss_wts[0]*main_focal_loss
+    loss_list['main_focal_loss'] += main_focal_loss
     # loss = loss + loss_wts[2]*torch.sum(conicity)
     # loss_list['conicity'] += torch.sum(conicity)
     return pred, loss, loss_list
@@ -69,7 +72,7 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, amp):
     process = data_handler.data_type
     running_loss = 0
     # loss_list = {'main_bce': 0, 'aux_bce': 0, 'conicity': 0}
-    loss_list = {'main_bce': 0, 'aux_bce': 0}
+    loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0}
     pred_list = []
     label_list = []
     softpred_list = []

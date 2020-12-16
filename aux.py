@@ -1,6 +1,7 @@
 ''' Supplmentary functions for learner to use '''
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.autograd import Function
 import sklearn.metrics
 import argparse
@@ -50,9 +51,9 @@ def logMetrics(epochNum, metrics, loss_list, process, logFile, task):
     if task == 'classify':
         line = (
             f'Epoch num. {epochNum} - {process}'
-            f' Main_BCE : {loss_list["main_bce"]:.6f} ;'
-            f' Aux_loss : {loss_list["aux_bce"]:.6f} ;'
-            f' Conicity : {loss_list["conicity"]:.6f]} ;'
+            f' Main_FL : {loss_list["main_focal_loss"]:.6f} ;'
+            f' Aux_loss : {loss_list["aux_focal_loss"]:.6f} ;'
+            # f' Conicity : {loss_list["conicity"]:.6f]} ;'
             f' Acc : {metrics.Acc:.3f} ; F1 : {metrics.F1:.3f} ;'
             f' AUROC : {metrics.AUROC:.3f} ;  AUPRC : {metrics.AUPRC}\n'
         )
@@ -141,6 +142,28 @@ def getClassBalancedWt(beta, samplesPerCls, nClasses=2):
     weights = (1.0 - beta) / np.array(effectiveNum)
     weights = weights / np.sum(weights) * nClasses
     return torch.Tensor(weights).cuda()
+
+
+class FocalLoss(nn.Module):
+    """ Simple focal loss implementation """
+    def __init__(self, alpha, gamma, reduction):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.eps = 1e-12
+
+    def forward(self, pred, label_one_hot):
+        pred = pred + self.eps
+        focus_weight = torch.pow(torch.tensor(1.) - pred,
+                                 self.gamma.to(pred.dtype))
+        loss = self.alpha * focus_weight * torch.sum(label_one_hot*pred.log())
+        if self.reduction == 'mean':
+            loss = torch.mean(loss)
+        elif self.reduction == 'sum':
+            loss = torch.sum(loss)
+
+        return loss
 
 
 def weightedBCE(weight, pred, target):
