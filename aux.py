@@ -155,9 +155,10 @@ class FocalLoss(nn.Module):
 
     def forward(self, pred, label_one_hot):
         pred = pred + self.eps
-        focus_weight = torch.pow(torch.tensor(1.) - pred,
-                                 self.gamma.to(pred.dtype))
-        loss = self.alpha * focus_weight * torch.sum(label_one_hot*pred.log())
+        focus_weight = torch.pow(torch.tensor(1.) - pred, self.gamma)
+# self.gamma.to(pred.dtype))
+        loss = -(torch.sum(self.alpha*focus_weight*label_one_hot*pred.log(),
+                           dim=1))
         if self.reduction == 'mean':
             loss = torch.mean(loss)
         elif self.reduction == 'sum':
