@@ -15,7 +15,7 @@ from collections import namedtuple
 PATH = '/home/abhinav/CXR_datasets/COVIDx_data/all_data'
 # PATH = '/home/abhinav/CXR_datasets/lung_seg_dataset_v7labs/all_data'
 # PATH_FLIST = '/home/abhinav/CXR_datasets/lung_seg_dataset_v7labs/file_lists'
-PATH_FLIST = '/home/abhinav/CXR_datasets/COVIDx_data/small_set_flists'
+PATH_FLIST = '/home/abhinav/CXR_datasets/COVIDx_data/small_set_5fold_flists'
 Metrics = namedtuple('Metrics', ['Loss', 'Acc', 'F1', 'AUROC', 'AUPRC',
                                  'fpr_tpr_arr', 'precision_recall_arr'])
 IMG_DIMS = (512, 512)
@@ -23,9 +23,9 @@ IMG_DIMS = (512, 512)
 # DATASET_LIST = ['rsna']
 # DATASET_LIST = ['sirm', 'cohen', 'kg']
 DATASET_LIST = ['actmed', 'fig1', 'sirm', 'cohen', 'rsna']
-# TASK = 'normal_vs_pneumonia'
+TASK = 'normal_vs_pneumonia'
 # TASK = 'pneumonia_vs_covid'
-TASK = 'two_stage'
+# TASK = 'two_stage'
 
 # # Used variables
 # crop_params = (210, 215)

@@ -114,7 +114,7 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp):
                 # pred = model.forward(X)
                 pred, loss, loss_list = predict_compute_loss(
                     X, model, y_onehot, class_wts, loss_wts, loss_list,
-                    process, amp
+                    process, gamma, amp
                 )
                 if amp:
                     scaler.scale(loss).backward()
@@ -129,7 +129,7 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp):
                     # pred = model.forward(X)
                     pred, loss, loss_list = predict_compute_loss(
                         X, model, y_onehot, class_wts, loss_wts, loss_list,
-                        process, amp
+                        process, gamma, amp
                     )
             running_loss += loss
             hardPred = torch.argmax(pred, 1)

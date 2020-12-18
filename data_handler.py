@@ -64,11 +64,11 @@ class DataLoader:
         # allFileList = os.listdir(os.path.join(path, data_type))
         if self.data_type == 'val':
             flist_name = (config.PATH_FLIST + '/val.txt')
-                          # '5fold_split_val.txt')
+            # '5fold_split_val.txt')
         else:
-            flist_name = (config.PATH_FLIST + '/' + self.data_type + '.txt')
-                          # + '5fold_split_' + str(self.fold_num)
-                          # + '_' + self.data_type + '.txt')
+            # flist_name = (config.PATH_FLIST + '/' + self.data_type + '.txt')
+            flist_name = (config.PATH_FLIST + '/5fold_split_' +
+                          str(self.fold_num) + '_' + self.data_type + '.txt')
         all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
         file_list = []
         for file_name in all_filelist:
