@@ -26,8 +26,18 @@ from exp_models import RobustDenseNet
 
 
 def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
-                         process, amp):
-    """ Run prediction and return losses """
+                         process, gamma, amp):
+    """
+    Run prediction and return losses
+    Args:
+        X (torch.Tensor): data batch from data loader
+        model(torch.nn.Module): model being trained/predicted with
+        y_OH (torch.Tensor): one-hot encoded labels
+    Returns:
+        pred (torch.Tensor): soft predictions for given batch
+        loss (float): total loss for the batch
+        loss_list (dict): break up of losses
+    """
     # if amp:
     #     with torch.cuda.amp.autocast():
     if process == 'trn':
@@ -45,7 +55,7 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
     #             pred, conicity = model.forward(X)
     # conicity = torch.abs(conicity)
     pred = F.softmax(pred, 1)
-    focal_loss_fn = aux.FocalLoss(class_wts, gamma=5, reduction='sum')
+    focal_loss_fn = aux.FocalLoss(class_wts, gamma=gamma, reduction='sum')
     # loss = 0
     # for i in range(2):
     # main_bce_loss = lossFun(class_wts[i], pred[:, i], y_OH[:, i])
@@ -63,9 +73,22 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
     return pred, loss, loss_list
 
 
-def run_model(data_handler, model, optimizer, class_wts, loss_wts, amp):
+def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp):
     '''
-    process : 'trn', 'val' or 'tst'
+    Loads data from given data_handler object, runs model prediction,
+    collects losses/metrics and computes gradient & updates weights
+    if process is trn.
+    Args:
+        data_handler (DataLoader): data loader object
+        model (torch.nn.Module): model for training/inference
+        optimizer (torch.optim module): optimizer
+        class_wts (List[float]): class weights for weighted loss
+        loss_wts (List[float]): weightage for loss functions
+        gamma (int): focusing factor gamma for focal loss
+        amp (bool): Whether to use mixed precision
+    Returns:
+        metrics (NamedTuple[Metrics]): Containing selected metrics for epoch
+        loss_list (dict): Dictionary containing breakup of loss over the epoch
     '''
     num_batches = data_handler.num_batches
     batch_size = data_handler.batch_size
@@ -235,14 +258,15 @@ def main():
                               + args.nEpochs):
             trnMetrics, trn_loss_list = run_model(
                 trn_data_handler, model, optimizer, class_wts,
-                loss_wts=loss_wts, amp=amp
+                loss_wts=loss_wts, gamma=args.gamma, amp=amp
             )
             aux.logMetrics(epochNum, trnMetrics, trn_loss_list, 'trn', logFile,
                            'classify')
             torch.save(model.state_dict(), 'savedModels/'+args.saveName+'.pt')
         # epochNum = 0
             valMetrics, val_loss_list = run_model(
-                val_data_handler, model, optimizer, class_wts, loss_wts, amp
+                val_data_handler, model, optimizer, class_wts, loss_wts,
+                args.gamma, amp
             )
             aux.logMetrics(epochNum, valMetrics, val_loss_list, 'val', logFile,
                            'classify')
@@ -250,19 +274,22 @@ def main():
                 bestVal = aux.save_chkpt(bestValRecord, bestVal, valMetrics.F1,
                                          'F1', model, args.saveName)
         tstMetrics, tst_loss_list = run_model(
-            tst_data_handler, model, optimizer, class_wts, loss_wts, amp
+            tst_data_handler, model, optimizer, class_wts, loss_wts,
+            args.gamma, amp
         )
         aux.logMetrics(epochNum, tstMetrics, tst_loss_list, 'tst', logFile,
                        'classify')
     elif args.runMode == 'val':
         valMetrics, val_loss_list = run_model(
-            val_data_handler, model, optimizer, class_wts, loss_wts, amp
+            val_data_handler, model, optimizer, class_wts, loss_wts,
+            args.gamma, amp
         )
         aux.logMetrics(1, valMetrics, val_loss_list, 'val', logFile,
                        'classify')
     elif args.runMode == 'tst':
         tstMetrics, tst_loss_list = run_model(
-            tst_data_handler, model, optimizer, class_wts, loss_wts, amp
+            tst_data_handler, model, optimizer, class_wts, loss_wts,
+            args.gamma, amp
         )
         aux.logMetrics(1, tstMetrics, tst_loss_list, 'tst', logFile,
                        'classify')
@@ -275,7 +302,7 @@ def main():
                               num_classes=2, downsample_freq=1).cuda()
         model_stage2 = nn.DataParallel(model_stage2)
         flg1 = aux.loadModel('chkpt', model_stage1,
-                             'stage1_covidx_split1_densenet121_wAux')
+                             'stage1_covidx_split1_densenet121_wAux_FL')
 # 'stage1_covidx_split1')
         flg2 = aux.loadModel('chkpt', model_stage2,
                              'stage2_covidx_split1')

@@ -30,6 +30,8 @@ def getOptions():
                         "and auxiliary loss. Pass as a string in format wt1,"
                         "wt2 such that wt1+wt2=1", type=str,
                         default='0.8, 0.2')
+    parser.add_argument("--gamma", help="Gamma for focal loss", type=float,
+                        default=2)
     parser.add_argument("--foldNum", help="Fold number for k fold"
                         "cross-validation", type=int, default='1')
     parser.add_argument("-loadflg", "--loadModelFlag", help="Whether and"
