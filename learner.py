@@ -38,15 +38,28 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
         loss (float): total loss for the batch
         loss_list (dict): break up of losses
     """
-    # if amp:
-    #     with torch.cuda.amp.autocast():
-    if process == 'trn':
-        # pred, aux_pred, conicity = model.forward(X)
-        pred, aux_pred = model.forward(X)
-        aux_pred = F.softmax(aux_pred, 1)
-    else:
-        # pred, conicity = model.forward(X)
-        pred = model.forward(X)
+    focal_loss_fn = aux.FocalLoss(class_wts, gamma=gamma, reduction='sum')
+    if amp:
+        with torch.cuda.amp.autocast():
+            if process == 'trn':
+                pred, aux_pred, conicity = model.forward(X)
+                # pred, aux_pred = model.forward(X)
+                aux_pred = F.softmax(aux_pred, 1)
+            else:
+                pred, conicity = model.forward(X)
+            pred = F.softmax(pred.float(), 1)
+            main_focal_loss = focal_loss_fn(pred, y_OH)
+            if process == 'trn':
+                main_aux_loss = focal_loss_fn(aux_pred, y_OH)
+                loss = (loss_wts[0]*main_focal_loss +
+                        loss_wts[1]*main_aux_loss)
+                loss_list['aux_focal_loss'] += main_aux_loss
+            else:
+                loss = loss_wts[0]*main_focal_loss
+            loss_list['main_focal_loss'] += main_focal_loss
+            loss = loss + loss_wts[2]*torch.sum(conicity)
+            loss_list['conicity'] += torch.sum(conicity)
+        # pred = model.forward(X)
     # else:
     #         if process == 'trn':
     #             pred, aux_pred, conicity = model.forward(X)
@@ -54,22 +67,10 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
     #         else:
     #             pred, conicity = model.forward(X)
     # conicity = torch.abs(conicity)
-    pred = F.softmax(pred, 1)
-    focal_loss_fn = aux.FocalLoss(class_wts, gamma=gamma, reduction='sum')
+    # main_aux_loss = lossFun(class_wts[i], aux_pred[:, i], y_OH[:, i])
     # loss = 0
     # for i in range(2):
     # main_bce_loss = lossFun(class_wts[i], pred[:, i], y_OH[:, i])
-    main_focal_loss = focal_loss_fn(pred, y_OH)
-    if process == 'trn':
-        main_aux_loss = focal_loss_fn(aux_pred, y_OH)
-    # main_aux_loss = lossFun(class_wts[i], aux_pred[:, i], y_OH[:, i])
-        loss = (loss_wts[0]*main_focal_loss + loss_wts[1]*main_aux_loss)
-        loss_list['aux_focal_loss'] += main_aux_loss
-    else:
-        loss = loss_wts[0]*main_focal_loss
-    loss_list['main_focal_loss'] += main_focal_loss
-    # loss = loss + loss_wts[2]*torch.sum(conicity)
-    # loss_list['conicity'] += torch.sum(conicity)
     return pred, loss, loss_list
 
 
@@ -95,7 +96,7 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp):
     process = data_handler.data_type
     running_loss = 0
     # loss_list = {'main_bce': 0, 'aux_bce': 0, 'conicity': 0}
-    loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0}
+    loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0, 'conicity': 0}
     pred_list = []
     label_list = []
     softpred_list = []
@@ -223,20 +224,20 @@ def main():
     aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
                  'blur', 'sharpen', 'translate']
     trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
-                                  'random',
+                                  'all',
                                   # 'random_class0_all_class1',
                                   undersample=False, sample_size=2000,
-                                  aug_names=aug_names, in_channels=3)
+                                  aug_names=aug_names, in_channels=0)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize,
-                                  'none', in_channels=3)
+                                  'none', in_channels=0)
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize,
-                                  'none', in_channels=3)
-    # model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
-    #                num_classes=2, downsample_freq=1).cuda()
-    model = RobustDenseNet(pretrained=True, num_classes=2).cuda()
+                                  'none', in_channels=0)
+    model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
+                   num_classes=2, downsample_freq=1).cuda()
+    # model = RobustDenseNet(pretrained=True, num_classes=2).cuda()
 # print(summary(model, torch.zeros((1, 1, 512, 512)).cuda(), show_input=True))
     # model = resnet18(num_classes=2).cuda()
-    # model = nn.DataParallel(model)
+    model = nn.DataParallel(model)
     if args.loadModelFlag:
         print(args.saveName)
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
@@ -245,11 +246,11 @@ def main():
         elif successFlag == 1:
             print("Model loaded successfully")
 #    class_wts = aux.getClassBalancedWt(0.9999, [1203, 1176+390])
-    class_wts = aux.getClassBalancedWt(0.9999, [8308, 5676+258])
+    # class_wts = aux.getClassBalancedWt(0.9999, [8308, 5676+258])
     # class_wts = aux.getClassBalancedWt(0.9999, [5676, 258])
     # class_wts = aux.getClassBalancedWt(0.9999, [4610, 461])
     # class_wts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
-    # class_wts = aux.getClassBalancedWt(0.9999, [4810, 4810])
+    class_wts = aux.getClassBalancedWt(0.9999, [4810, 4810])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
