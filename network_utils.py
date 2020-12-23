@@ -69,10 +69,13 @@ class Bottleneck(nn.Module):
     def __init__(self, nChannels, growthRate):
         super(Bottleneck, self).__init__()
         interChannels = 4*growthRate
-        self.bn1 = nn.BatchNorm2d(nChannels)
+        nGrps = 16
+        # self.bn1 = nn.BatchNorm2d(nChannels)
+        self.bn1 = norms.GroupNorm(nGrps, nChannels)
         self.conv1 = nn.Conv2d(nChannels, interChannels, kernel_size=1,
                                bias=True)
-        self.bn2 = nn.BatchNorm2d(interChannels)
+        self.bn2 = norms.GroupNorm(nGrps, interChannels)
+        # self.bn2 = nn.BatchNorm2d(interChannels)
         self.conv2 = nn.Conv2d(interChannels, growthRate, kernel_size=3,
                                padding=0, bias=True)
 
@@ -90,7 +93,7 @@ class Transition(nn.Module):
         if nChannels < 64:
             nGrps = 4
         else:
-            nGrps = 10  # 16
+            nGrps = 16
         self.bn1 = norms.GroupNorm(nGrps, nChannels)
 #        self.bn1 = nn.BatchNorm2d(nChannels)
         self.conv1 = nn.Conv2d(nChannels, nOutChannels, kernel_size=1,
