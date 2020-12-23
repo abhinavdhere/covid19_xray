@@ -55,7 +55,7 @@ def logMetrics(epochNum, metrics, loss_list, process, logFile, task):
             f'Epoch num. {epochNum} - {process}'
             f' Main_FL : {loss_list["main_focal_loss"]:.6f} ;'
             f' Aux_loss : {loss_list["aux_focal_loss"]:.6f} ;'
-            f' Conicity : {loss_list["conicity"]:.6f]} ;'
+            f' Conicity : {loss_list["conicity"]:.6f} ;'
             f' Acc : {metrics.Acc:.3f} ; F1 : {metrics.F1:.3f} ;'
             f' AUROC : {metrics.AUROC:.3f} ;  AUPRC : {metrics.AUPRC}\n'
         )

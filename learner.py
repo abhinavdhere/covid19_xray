@@ -58,7 +58,7 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
                 loss = loss_wts[0]*main_focal_loss
             loss_list['main_focal_loss'] += main_focal_loss
             loss = loss + loss_wts[2]*torch.sum(conicity)
-            loss_list['conicity'] += torch.sum(conicity)
+            loss_list['conicity'] += torch.sum(conicity).item()
         # pred = model.forward(X)
     # else:
     #         if process == 'trn':
@@ -246,11 +246,11 @@ def main():
         elif successFlag == 1:
             print("Model loaded successfully")
 #    class_wts = aux.getClassBalancedWt(0.9999, [1203, 1176+390])
-    # class_wts = aux.getClassBalancedWt(0.9999, [8308, 5676+258])
+    class_wts = aux.getClassBalancedWt(0.9999, [8308, 5676+258])
     # class_wts = aux.getClassBalancedWt(0.9999, [5676, 258])
     # class_wts = aux.getClassBalancedWt(0.9999, [4610, 461])
     # class_wts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
-    class_wts = aux.getClassBalancedWt(0.9999, [4810, 4810])
+    # class_wts = aux.getClassBalancedWt(0.9999, [4810, 4810])
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
