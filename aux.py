@@ -62,7 +62,7 @@ def logMetrics(epochNum, metrics, loss_list, process, logFile, task):
     elif task == 'segment':
         line = (
             f'Epoch num. {epochNum} - {process}'
-            f' BCE : {loss_list["bce"]:.6f} ;'
+            f' Focal_loss : {loss_list["focal_loss"]:.6f} ;'
             f' Dice_loss : {loss_list["dice"]:.6f} ;'
             f' MSE : {loss_list["mse"]:.6f} ;'
             f' Dice_score : {metrics.Dice:.4f}\n'
@@ -132,6 +132,26 @@ def initLogging(saveName, metric_name):
     if not os.path.exists(os.path.join('logs', logFile)):
         os.system('touch '+os.path.join('logs', logFile))
     return bestValRecord, logFile
+
+
+def log_config(log_file_name, args):
+    '''
+    Information regarding selected args to be logged in file along
+    with time and date of run.
+    Args:
+        log_file_name (str): name of log file
+        args : args obtained from argparser
+    '''
+    from datetime import datetime
+    run_time = datetime.now()
+    run_time_str = run_time.strftime('%d-%m-%Y %H:%M:%S')
+    config_desc = ''
+    for arg_name, arg_val in vars(args).items():
+        config_desc += f'{arg_name} : {arg_val} \t'
+    with open(os.path.join('logs', log_file_name), 'a') as f:
+        f.write(('-'*20)+'\n')
+        f.write(f'Run initiated at {run_time_str} \n')
+        f.write(config_desc)
 
 
 # #--------- Loss functions ------------
