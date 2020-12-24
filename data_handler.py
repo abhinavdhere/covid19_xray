@@ -4,7 +4,7 @@ import os
 import numpy as np
 import torch
 import cv2
-import pydicom as dcm
+# import pydicom as dcm
 
 import aux
 import config
@@ -66,9 +66,9 @@ class DataLoader:
             flist_name = (config.PATH_FLIST + '/val.txt')
             # '5fold_split_val.txt')
         else:
-            flist_name = (config.PATH_FLIST + '/' + self.data_type + '.txt')
-            # flist_name = (config.PATH_FLIST + '/5fold_split_' +
-            #               str(self.fold_num) + '_' + self.data_type + '.txt')
+            # flist_name = (config.PATH_FLIST + '/' + self.data_type + '.txt')
+            flist_name = (config.PATH_FLIST + '/5fold_split_' +
+                          str(self.fold_num) + '_' + self.data_type + '.txt')
         all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
         file_list = []
         for file_name in all_filelist:
@@ -89,7 +89,7 @@ class DataLoader:
         Returns:
             name_w_code (str): name with augmentation code appended
         '''
-        augment_flag = np.random.choice([0, 1])
+        augment_flag = np.random.choice([0, 1, 2, 3])
         if augment_flag:
             aug_name = np.random.choice(self._tmp_aug_names)
         else:
@@ -165,9 +165,9 @@ class DataLoader:
             img (torch.Tensor): CUDA tensor of size (in_channels, size0, size1)
                 with required preprocessing.
         """
-        # img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
-        img = dcm.dcmread(full_name)
-        img = img.pixel_array
+        img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
+        # img = dcm.dcmread(full_name)
+        # img = img.pixel_array
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         img = (img - np.mean(img)) / np.std(img)
@@ -305,7 +305,13 @@ class SegDataLoader(DataLoader):
         if self.in_channels == 0 or file_type == 'label':
             img = torch.Tensor(img).cuda()
             img = img.unsqueeze(0)
-        img = augment(img, aug_name, file_type)
+        if len(aug_name.split('+')) > 0:
+            # case where combinations of augmentations taken
+            aug_names = aug_name.split('+')
+            for aug_type in aug_names:
+                img = augment(img, aug_type, file_type)
+        else:
+            img = augment(img, aug_name, file_type)
         return img
 
     def dataloader(self):
