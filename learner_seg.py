@@ -19,34 +19,44 @@ import torch.nn as nn
 # from pytorch_model_summary import summary
 
 import aux
-from aux import weightedBCE as lossBCE, dice_coeff as lossDice
+# from aux import weightedBCE as lossBCE, dice_coeff as lossDice
+from aux import dice_coeff as lossDice
 from data_handler import SegDataLoader
 from dense_unet import DUN
 # from unet import UNet
 
 
-def predict_compute_loss(X, model, y_OH, loss_wts, loss_list, amp):
-    """ Run prediction and return losses """
-    if amp:
-        with torch.cuda.amp.autocast():
-            pred, recons = model.forward(X)
-    else:
-        pred, recons = model.forward(X)
-    # pred = F.softmax(pred, 1)
-    loss = 0
+def predict_compute_loss(X, model, y_OH, loss_wts, loss_list, gamma):
+    """
+    Run prediction and return losses
+    Args:
+        X (torch.Tensor): data batch from data loader
+        model(torch.nn.Module): model being trained/predicted with
+        y_OH (torch.Tensor): one-hot encoded labels
+    Returns:
+        pred (torch.Tensor): soft predictions for given batch
+        loss (float): total loss for the batch
+        loss_list (dict): break up of losses
+    """
+    pred, recons = model.forward(X)
+    class_wts = torch.Tensor([1, 1]).view(1, -1, 1, 1).cuda()
+    focal_loss_fn = aux.FocalLoss(class_wts, gamma=int(gamma),
+                                  reduction='sum')
+    dice_loss = 0
+    focal_loss = focal_loss_fn(pred, y_OH) / (512*512)
     for i in range(2):
-        bce_loss = lossBCE(1, pred[:, i], y_OH[:, i]) / (512*512)
-        dice_loss = lossDice(pred[:, i], y_OH[:, i])
-        loss += (loss_wts[0]*bce_loss + loss_wts[1]*dice_loss)
-        loss_list['bce'] += bce_loss
-        loss_list['dice'] += dice_loss.item()
+        # bce_loss = lossBCE(1, pred[:, i], y_OH[:, i]) / (512*512)
+        dice_loss += lossDice(pred[:, i], y_OH[:, i])
+    loss = (loss_wts[0]*focal_loss + loss_wts[1]*dice_loss)
+    loss_list['focal_loss'] += focal_loss
+    loss_list['dice'] += dice_loss.item()
     mse_loss = F.mse_loss(recons, X)
     loss += loss_wts[2]*mse_loss
     loss_list['mse'] += mse_loss
     return pred, loss, loss_list
 
 
-def run_model(data_handler, model, optimizer, loss_wts, amp):
+def run_model(data_handler, model, optimizer, loss_wts, gamma, amp):
     '''
     process : 'trn', 'val' or 'tst'
     '''
@@ -55,7 +65,7 @@ def run_model(data_handler, model, optimizer, loss_wts, amp):
     process = data_handler.data_type
     running_loss = 0
     running_dice = 0
-    loss_list = {'bce': 0, 'dice': 0, 'mse': 0}
+    loss_list = {'focal_loss': 0, 'dice': 0, 'mse': 0}
     pred_list = []
     label_list = []
     softpred_list = []
@@ -68,22 +78,33 @@ def run_model(data_handler, model, optimizer, loss_wts, amp):
             if process == 'trn':
                 optimizer.zero_grad()
                 model.train()
-                pred, loss, loss_list = predict_compute_loss(
-                    X, model, y_onehot, loss_wts, loss_list, amp
-                )
                 if amp:
+                    with torch.cuda.amp.autocast():
+                        pred, loss, loss_list = predict_compute_loss(
+                            X, model, y_onehot, loss_wts, loss_list, gamma
+                        )
                     scaler.scale(loss).backward()
                     scaler.step(optimizer)
                     scaler.update()
                 else:
+                    pred, loss, loss_list = predict_compute_loss(
+                        X, model, y_onehot, loss_wts, loss_list, gamma
+                    )
                     loss.backward()
                     optimizer.step()
             elif process == 'val' or process == 'tst':
                 model.eval()
-                with torch.no_grad():
-                    pred, loss, loss_list = predict_compute_loss(
-                        X, model, y_onehot, loss_wts, loss_list, amp
-                    )
+                if amp:
+                    with torch.no_grad(), torch.cuda.amp.autocast():
+                        pred, loss, loss_list = predict_compute_loss(
+                            X, model, y_onehot, loss_wts, loss_list, gamma
+                        )
+                else:
+                    with torch.no_grad():
+                        pred, loss, loss_list = predict_compute_loss(
+                            X, model, y_onehot, loss_wts, loss_list, gamma
+                        )
+
             running_loss += loss
             hardPred = torch.argmax(pred, 1)
             running_dice += aux.integral_dice(hardPred, y_onehot[:, 1], 1)
@@ -122,7 +143,7 @@ def main():
     aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
                  'blur', 'sharpen', 'translate']
     trn_data_handler = SegDataLoader('trn', args.foldNum, args.batchSize,
-                                     'random',
+                                     'all',
                                      # 'random_class0_all_class1',
                                      undersample=False, sample_size=3000,
                                      aug_names=aug_names, in_channels=0)
@@ -152,14 +173,14 @@ def main():
         for epochNum in range(args.initEpochNum, args.initEpochNum
                               + args.nEpochs):
             trn_metrics, trn_loss_list = run_model(
-                trn_data_handler, model, optimizer, loss_wts, amp
+                trn_data_handler, model, optimizer, loss_wts, args.gamma, amp
             )
             aux.logMetrics(epochNum, trn_metrics, trn_loss_list, 'trn',
                            logFile, 'segment')
             torch.save(model.state_dict(), 'savedModels/'+args.saveName+'.pt')
         # epochNum = 0
             val_metrics, val_loss_list = run_model(
-                val_data_handler, model, optimizer, loss_wts, amp
+                val_data_handler, model, optimizer, loss_wts, args.gamma, amp
             )
             aux.logMetrics(epochNum, val_metrics, val_loss_list, 'val',
                            logFile, 'segment')
@@ -168,19 +189,19 @@ def main():
                                          val_metrics.Dice, 'Dice',
                                          model, args.saveName)
         tst_metrics, tst_loss_list = run_model(
-            tst_data_handler, model, optimizer, loss_wts, amp
+            tst_data_handler, model, optimizer, loss_wts, args.gamma, amp
         )
         aux.logMetrics(epochNum, tst_metrics, tst_loss_list, 'tst',
                        logFile, 'segment')
     elif args.runMode == 'val':
             val_metrics, val_loss_list = run_model(
-                val_data_handler, model, optimizer, loss_wts, amp
+                val_data_handler, model, optimizer, loss_wts, args.gamma, amp
             )
             aux.logMetrics(args.initEpochNum, val_metrics, val_loss_list,
                            'val', logFile, 'segment')
     elif args.runMode == 'tst':
         tst_metrics, tst_loss_list = run_model(
-            tst_data_handler, model, optimizer, loss_wts, amp
+            tst_data_handler, model, optimizer, loss_wts, args.gamma, amp
         )
         aux.logMetrics(args.initEpochNum, tst_metrics, tst_loss_list,
                        'tst', logFile, 'segment')
