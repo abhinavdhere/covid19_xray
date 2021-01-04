@@ -3,6 +3,7 @@ Primary module. Includes dataloader,  trn/val/test functions. Reads
 options from user and runs training.
 '''
 import os
+from itertools import combinations
 # import pdb
 
 import torch
@@ -221,13 +222,18 @@ def main():
     loss_wts = tuple(map(float, args.lossWeights.split(',')))
     amp = (args.amp == 'True')
     # Inits
-    aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
-                 'blur', 'sharpen', 'translate']
+    base_aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
+                      'blur', 'sharpen', 'translate']
+    # taking pairs of aug. types + all individual aug.
+    all_aug_names = [combo[0]+'+'+combo[1] for combo in combinations(
+        base_aug_names[1:], 2)]
+    all_aug_names += base_aug_names
+    all_aug_names.remove('blur+sharpen')  # blur+sharpen is pointless
     trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
-                                  'all',
+                                  'random',
                                   # 'random_class0_all_class1',
                                   undersample=False, sample_size=2000,
-                                  aug_names=aug_names, in_channels=0)
+                                  aug_names=all_aug_names, in_channels=0)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize,
                                   'none', in_channels=0)
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize,
@@ -245,8 +251,8 @@ def main():
             return 0
         elif successFlag == 1:
             print("Model loaded successfully")
-#    class_wts = aux.getClassBalancedWt(0.9999, [1203, 1176+390])
-    class_wts = aux.getClassBalancedWt(0.9999, [8308, 5676+258])
+    class_wts = aux.getClassBalancedWt(0.9999, [1203, 1190+394])
+    # class_wts = aux.getClassBalancedWt(0.9999, [8308, 5676+258])
     # class_wts = aux.getClassBalancedWt(0.9999, [5676, 258])
     # class_wts = aux.getClassBalancedWt(0.9999, [4610, 461])
     # class_wts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
