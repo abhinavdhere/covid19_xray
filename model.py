@@ -139,7 +139,8 @@ class ResNet(nn.Module):
                                                (mid_size[2], mid_size[3]),
                                                align_corners=False,
                                                mode='bilinear')
-        # import pdb ; pdb.set_trace()
+        # import pdb
+        # pdb.set_trace()
         stacked_attn_map = torch.cat(attn_map_list, 1)
         ms_attn = torch.sigmoid(self.attn_conv(stacked_attn_map))
         x = ms_attn*x
