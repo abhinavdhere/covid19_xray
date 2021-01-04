@@ -1,6 +1,7 @@
 ''' Supplmentary functions for learner to use '''
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.autograd import Function
 import sklearn.metrics
 import argparse
@@ -29,6 +30,8 @@ def getOptions():
                         "and auxiliary loss. Pass as a string in format wt1,"
                         "wt2 such that wt1+wt2=1", type=str,
                         default='0.8, 0.2')
+    parser.add_argument("--gamma", help="Gamma for focal loss", type=float,
+                        default=2)
     parser.add_argument("--foldNum", help="Fold number for k fold"
                         "cross-validation", type=int, default='1')
     parser.add_argument("-loadflg", "--loadModelFlag", help="Whether and"
@@ -37,28 +40,33 @@ def getOptions():
     parser.add_argument("--runMode", help="all : trn, val, tst \n trn: train"
                         "only \n val: val only \n tst: test only", type=str,
                         default="all")
+    parser.add_argument("--amp", help="Whether mixed precision will be used"
+                        ". Valid values are True or False", default='False')
     return parser
 
 
 # #--------- Logging and model loading/saving ---------
-def logMetrics(epochNum, metrics, process, logFile, saveName, task):
+def logMetrics(epochNum, metrics, loss_list, process, logFile, task):
     '''
     Print metrics to terminal and save to logfile in a proper format.
     '''
     if task == 'classify':
-        line = ('Epoch num. {epochNum:d} \t {process} Loss : {lossVal:.7f};'
-                '{process} Acc : {acc:.3f} ; {process} F1 : {f1:.3f} ; '
-                '{process} AUROC : {auroc:.3f} ; {process} AUPRC :'
-                '{auprc:.3f}\n').format(epochNum=epochNum, process=process,
-                                        lossVal=metrics.Loss, acc=metrics.Acc,
-                                        f1=metrics.F1, auroc=metrics.AUROC,
-                                        auprc=metrics.AUPRC)
+        line = (
+            f'Epoch num. {epochNum} - {process}'
+            f' Main_FL : {loss_list["main_focal_loss"]:.6f} ;'
+            f' Aux_loss : {loss_list["aux_focal_loss"]:.6f} ;'
+            f' Conicity : {loss_list["conicity"]:.6f} ;'
+            f' Acc : {metrics.Acc:.3f} ; F1 : {metrics.F1:.3f} ;'
+            f' AUROC : {metrics.AUROC:.3f} ;  AUPRC : {metrics.AUPRC}\n'
+        )
     elif task == 'segment':
-        line = ('Epoch num. {epochNum:d} \t {process} Loss : {lossVal:.7f}'
-                ' {process} Dice : {dice:.3f}\n').format(epochNum=epochNum,
-                                                         process=process,
-                                                         lossVal=metrics.Loss,
-                                                         dice=metrics.Dice)
+        line = (
+            f'Epoch num. {epochNum} - {process}'
+            f' Focal_loss : {loss_list["focal_loss"]:.6f} ;'
+            f' Dice_loss : {loss_list["dice"]:.6f} ;'
+            f' MSE : {loss_list["mse"]:.6f} ;'
+            f' Dice_score : {metrics.Dice:.4f}\n'
+        )
     print(line.strip('\n'))
     if logFile:
         with open(os.path.join('logs', logFile), 'a') as f:
@@ -126,6 +134,27 @@ def initLogging(saveName, metric_name):
     return bestValRecord, logFile
 
 
+def log_config(log_file_name, args):
+    '''
+    Information regarding selected args to be logged in file along
+    with time and date of run.
+    Args:
+        log_file_name (str): name of log file
+        args : args obtained from argparser
+    '''
+    from datetime import datetime
+    run_time = datetime.now()
+    run_time_str = run_time.strftime('%d-%m-%Y %H:%M:%S')
+    config_desc = ''
+    for arg_name, arg_val in vars(args).items():
+        config_desc += f'{arg_name} : {arg_val} \t'
+    with open(os.path.join('logs', log_file_name), 'a') as f:
+        f.write(('-'*20)+'\n')
+        f.write(f'Run initiated at {run_time_str} \n')
+        f.write(config_desc)
+        f.write('\n')
+
+
 # #--------- Loss functions ------------
 def getClassBalancedWt(beta, samplesPerCls, nClasses=2):
     '''
@@ -136,6 +165,29 @@ def getClassBalancedWt(beta, samplesPerCls, nClasses=2):
     weights = (1.0 - beta) / np.array(effectiveNum)
     weights = weights / np.sum(weights) * nClasses
     return torch.Tensor(weights).cuda()
+
+
+class FocalLoss(nn.Module):
+    """ Simple focal loss implementation """
+    def __init__(self, alpha, gamma, reduction):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.eps = 1e-12
+
+    def forward(self, pred, label_one_hot):
+        pred = pred + self.eps
+        focus_weight = torch.pow(torch.tensor(1.) - pred, self.gamma)
+# self.gamma.to(pred.dtype))
+        loss = -(torch.sum(self.alpha*focus_weight*label_one_hot*pred.log(),
+                           dim=1))
+        if self.reduction == 'mean':
+            loss = torch.mean(loss)
+        elif self.reduction == 'sum':
+            loss = torch.sum(loss)
+
+        return loss
 
 
 def weightedBCE(weight, pred, target):
@@ -248,3 +300,42 @@ def toCategorical(yArr, *args):
     y_OH.zero_()
     y_OH.scatter_(1, yArr, 1)
     return y_OH
+
+
+def BCET(min_out_img, max_out_img, mean_out_img, in_img):
+    """
+    Obtain and apply BCET function for given input image and target
+    output params.
+    Translated from MATLAB code at
+    (https://www.imageeprocessing.com/2017/11/balance-contrast
+    -enhancement-technique.html)
+    Args:
+       min_out_img (float): min value of target image
+       max_out_img (float): max value of target image
+       mean_out_img (float): mean value of target image
+       in_img (np.array): input image to be transformed
+    Returns:
+       out_img (np.array): transformed output image
+    """
+    in_img = in_img.astype('float32')  # INPUT IMAGE
+    Lmin = np.min(in_img)  # MINIMUM OF INPUT IMAGE
+    Lmax = np.max(in_img)  # MAXIMUM OF INPUT IMAGE
+    Lmean = np.mean(in_img)  # MEAN OF INPUT IMAGE
+    LMssum = np.mean(in_img**2)  # MEAN SQUARE SUM OF INPUT IMAGE
+
+    bnum = ((Lmax**2)*(mean_out_img - min_out_img)
+            - LMssum*(max_out_img - min_out_img)
+            + (Lmin**2)*(max_out_img - mean_out_img))
+    bden = (2*(Lmax * (mean_out_img - min_out_img)
+               - Lmean*(max_out_img - min_out_img)
+               + Lmin * (max_out_img - mean_out_img)))
+
+    b = bnum/bden
+
+    a = (max_out_img-min_out_img)/((Lmax-Lmin)*(Lmax+Lmin-2*b))
+
+    c = min_out_img - a * (Lmin-b)**2
+
+    out_img = a * ((in_img-b)**2) + c  # PARABOLIC FUNCTION
+
+    return out_img

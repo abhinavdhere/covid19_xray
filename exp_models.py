@@ -1,7 +1,53 @@
 import torch
+import torchvision
 import torch.nn as nn
 import torch.nn.functional as F
-from model import SelfAttentionModule
+from efficientnet_pytorch import EfficientNet
+from model import AuxClassifier
+
+class RobustDenseNet(nn.Module):
+    """ DenseNet with aux output """
+    def __init__(self, pretrained, num_classes):
+        super(RobustDenseNet, self).__init__()
+        self.base_network = torchvision.models.densenet121(
+            pretrained=pretrained)
+        self.base_network.classifier = nn.Linear(
+            in_features=1024, out_features=num_classes, bias=True)
+        self.aux_classifier = AuxClassifier(512, num_classes)
+
+    def setup_hook(self):
+        self.mid_output = []
+        def hook(module, input, output):
+            self.mid_output.append(output)
+        hook_obj = self.base_network.features.denseblock2.register_forward_hook(hook)
+        return hook_obj
+
+    def forward(self, x):
+        hook_obj = self.setup_hook()
+        pred = self.base_network.forward(x)
+        if self.training:
+            mid_out = self.mid_output
+            aux_pred = self.aux_classifier(mid_out[0])
+            hook_obj.remove()
+            return pred, aux_pred
+        else:
+            return pred
+
+
+class RobustEfficientNet(RobustDenseNet):
+    def __init__(self, pretrained, num_classes):
+        super(RobustEfficientNet, self).__init__()
+        model = EfficientNet.from_pretrained('efficientnet-b4')
+        self.base_network.classifier = nn.Linear(
+            in_features=1792, out_features=num_classes, bias=True)
+        self.aux_classifier = AuxClassifier(112, num_classes)
+
+    def setup_hook(self):
+        self.mid_output = []
+        def hook(module, input, output):
+            self.mid_output.append(output)
+        hook_obj = self.base_network._blocks[16].register_forward_hook(hook)
+        return hook_obj
 
 
 class BasicNet2(nn.Module):
@@ -135,24 +181,3 @@ class BasicConvBlock(nn.Module):
         out = F.relu(self.bn(self.convLayer3(out)))
         out = out + x
         return x
-
-# class BasicConvBlock(nn.Module):
-#     def __init__(self, num_layers, in_channels):
-#         super(BasicConvBlock, self).__init__()
-#         self.layers = []
-#         self.bn = nn.BatchNorm2d(in_channels*2, in_channels*2)
-#         self.convLayer1 = nn.Conv2d(in_channels, in_channels*2,
-#                               kernel_size=3,
-#                               stride=1, padding=1).cuda()
-#         for layernum in range(1, num_layers):
-#             convLayer = nn.Conv2d(in_channels*2, in_channels*2,
-# kernel_size=3,
-#                                   stride=1, padding=1).cuda()
-#             self.layers.append(convLayer)
-
-#     def forward(self, x):
-#         x = F.relu(self.convLayer1(x))
-#         for layernum in range(1,len(self.layers)):
-#             x = F.relu(self.layers[layernum](x))
-#         x = self.bn(x)
-#         return x

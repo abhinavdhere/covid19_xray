@@ -5,12 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class SEModule(nn.Module):
-    '''Squeeze and excitation module for weighted average of attention maps'''
-    def __init__(self):
-        super(SEModule, self).__init__()
-
-
 class ResBlock(nn.Module):
     ''' Single residual block with variable number of conv layers.
     Attention can be turned on or off.
@@ -28,6 +22,7 @@ class ResBlock(nn.Module):
         super(ResBlock, self).__init__()
         self.attention = attention
         self.downsample = downsample
+        self.attn_scaler = nn.Parameter(torch.Tensor([1]))
         if self.downsample:
             stride = 2
             self.down_conv = nn.Conv2d(init_feats, feats, kernel_size=1,
@@ -56,11 +51,15 @@ class ResBlock(nn.Module):
         if self.downsample:
             identity = self.down_conv(identity)
         if self.attention:
-            out = torch.sigmoid(out)
-            out = identity*out
-        res = identity+out
+            attn = torch.sigmoid(out)
+            attn_out = self.attn_scaler*identity*attn
+            # out = torch.sigmoid(out)
+            # out = identity*out
+            res = identity+out+attn_out
+        else:
+            res = identity+out
         res = F.relu(res)
-        return res, out
+        return res, attn
 
 
 class AuxClassifier(nn.Module):
@@ -69,7 +68,7 @@ class AuxClassifier(nn.Module):
         self.conv0 = nn.Conv2d(in_channels, in_channels*4, kernel_size=3,
                                stride=4, padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.final = nn.Linear(512, num_classes)
+        self.final = nn.Linear(in_channels*4, num_classes)
 
     def forward(self, x):
         x = F.relu(self.conv0(x))
@@ -140,7 +139,8 @@ class ResNet(nn.Module):
                                                (mid_size[2], mid_size[3]),
                                                align_corners=False,
                                                mode='bilinear')
-        # import pdb ; pdb.set_trace()
+        # import pdb
+        # pdb.set_trace()
         stacked_attn_map = torch.cat(attn_map_list, 1)
         ms_attn = torch.sigmoid(self.attn_conv(stacked_attn_map))
         x = ms_attn*x
