@@ -10,9 +10,10 @@ Attributes:
 """
 from collections import namedtuple
 
-# PATH = '/home/abhinav/CXR_datasets/PDCOVIDNet_data/all_images'
-PATH = '/home/abhinav/CXR_datasets/RSNA_dataset/all_images'
-PATH_FLIST = '/home/abhinav/CXR_datasets/RSNA_dataset/file_lists'
+PATH = '/home/abhinav/CXR_datasets/PDCOVIDNet_data/all_images'
+PATH_FLIST = '/home/abhinav/CXR_datasets/PDCOVIDNet_data/file_lists'
+# PATH = '/home/abhinav/CXR_datasets/RSNA_dataset/all_images'
+# PATH_FLIST = '/home/abhinav/CXR_datasets/RSNA_dataset/file_lists'
 # PATH = '/home/abhinav/CXR_datasets/COVIDx_data/all_data'
 # PATH = '/home/abhinav/CXR_datasets/lung_seg_dataset_v7labs/all_data'
 # PATH_FLIST = '/home/abhinav/CXR_datasets/lung_seg_dataset_v7labs/file_lists'
@@ -21,8 +22,8 @@ Metrics = namedtuple('Metrics', ['Loss', 'Acc', 'F1', 'AUROC', 'AUPRC',
                                  'fpr_tpr_arr', 'precision_recall_arr'])
 IMG_DIMS = (512, 512)
 # IMG_DIMS = (256, 256)
-DATASET_LIST = ['rsna']
-# DATASET_LIST = ['sirm', 'cohen', 'kg']
+# DATASET_LIST = ['rsna']
+DATASET_LIST = ['sirm', 'cohen', 'kg']
 # DATASET_LIST = ['actmed', 'fig1', 'sirm', 'cohen', 'rsna']
 TASK = 'normal_vs_pneumonia'
 # TASK = 'pneumonia_vs_covid'

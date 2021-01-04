@@ -152,6 +152,7 @@ def log_config(log_file_name, args):
         f.write(('-'*20)+'\n')
         f.write(f'Run initiated at {run_time_str} \n')
         f.write(config_desc)
+        f.write('\n')
 
 
 # #--------- Loss functions ------------

@@ -8,7 +8,7 @@ class dense_unet_encoder(nn.Module):
         super(dense_unet_encoder, self).__init__()
         self.growthRate = 32
         nFeat = 1
-        self.nLayers = [2, 4, 6, 8]
+        self.nLayers = [2, 8, 18, 24]
         isBottleneck = True
         self.inputLayer = nn.Conv2d(nFeat, 64, 7, stride=2, padding=3)
         self.mp = nn.MaxPool2d(kernel_size=2, stride=2)
