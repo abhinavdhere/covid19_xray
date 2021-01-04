@@ -63,8 +63,8 @@ class DataLoader:
         """
         # allFileList = os.listdir(os.path.join(path, data_type))
         if self.data_type == 'val':
-            flist_name = (config.PATH_FLIST + '/val.txt')
-            # '5fold_split_val.txt')
+            # flist_name = (config.PATH_FLIST + '/val.txt')
+            flist_name = (config.PATH_FLIST + '/5fold_split_val.txt')
         else:
             # flist_name = (config.PATH_FLIST + '/' + self.data_type + '.txt')
             flist_name = (config.PATH_FLIST + '/5fold_split_' +
@@ -198,9 +198,14 @@ class DataLoader:
         Returns:
             img (torch.Tensor): CUDA Image tensor with lungs region only
         """
-        lung_mask = cv2.imread(config.PATH.rsplit('/', 1)[0]
-                               + '/lungSeg/'+file_name, cv2.IMREAD_GRAYSCALE)
-        lung_mask[lung_mask == 255] = 1
+        # lung_mask = cv2.imread(config.PATH.rsplit('/', 1)[0]
+        #                        + '/lung_seg_filtered/'+file_name,
+        #                        cv2.IMREAD_GRAYSCALE)
+        lung_mask = np.load(config.PATH.rsplit('/', 1)[0]
+                            + '/lung_seg_raw/'+file_name+'.npy')
+        # lung_mask[lung_mask == 255] = 1
+        # lung_mask[lung_mask < 10] = 0
+        # lung_mask[lung_mask > 10] = 1
         img = img*lung_mask
         if crop:
             min_row, max_row = np.where(np.any(lung_mask, 0))[0][[0, -1]]
@@ -237,8 +242,12 @@ class DataLoader:
                 elif config.TASK == 'normal_vs_pneumonia' and lbl > 1:
                     lbl = 1
                 name_w_path = os.path.join(config.PATH, file_name)
-                img = self.preprocess_data(name_w_path, aug_name,
-                                           segment_lung=False)
+                try:
+                    img = self.preprocess_data(name_w_path, aug_name,
+                                               segment_lung=True)
+                except cv2.error:
+                    import pdb
+                    pdb.set_trace()
                 # pdb.set_trace()
                 if torch.std(img) == 0 or not torch.isfinite(img).all():
                     raise ValueError('Image intensity inappropriate'
@@ -268,8 +277,9 @@ class SegDataLoader(DataLoader):
         if self.data_type == 'val':
             flist_name = (config.PATH_FLIST + '/val_list.txt')
         else:
-            flist_name = (config.PATH_FLIST
-                          + '/' + self.data_type + '_list.txt')
+            flist_name = (config.PATH_FLIST + '/all_images.txt')
+            # flist_name = (config.PATH_FLIST
+            #               + '/' + self.data_type + '_list.txt')
         all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
         file_list = []
         for file_name in all_filelist:
@@ -294,7 +304,7 @@ class SegDataLoader(DataLoader):
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         if file_type == 'data':
-            img = aux.BCET(0, 255, 86, img)  # BCET contrast enhancement
+            # img = aux.BCET(0, 255, 86, img)  # BCET contrast enhancement
             img = (img - np.mean(img)) / np.std(img)
         if self.in_channels == 3 and file_type == 'data':
             if img.dtype == 'float64':
@@ -336,14 +346,16 @@ class SegDataLoader(DataLoader):
             for file_name_full in aug_list:
                 file_name = '_'.join(file_name_full.split('_')[:-1])
                 aug_name = file_name_full.split('_')[-1]
-                name_w_path = os.path.join(config.PATH, 'images',
-                                           file_name.split('.')[0]+'.jpeg')
-                lbl_name_w_path = os.path.join(config.PATH, 'labels',
-                                               file_name)
+                name_w_path = os.path.join(config.PATH, file_name)
+                # name_w_path = os.path.join(config.PATH, 'images',
+                #                            file_name.split('.')[0]+'.jpeg')
+                # lbl_name_w_path = os.path.join(config.PATH, 'labels',
+                #                                file_name)
                 img = self.preprocess_data(name_w_path, 'data', aug_name,
                                            segment_lung=False)
-                lbl = self.preprocess_data(lbl_name_w_path, 'label', aug_name,
-                                           segment_lung=False)
+                lbl = torch.ones(img.shape)
+                # lbl = self.preprocess_data(lbl_name_w_path, 'label', aug_name,
+                #                            segment_lung=False)
                 if torch.std(img) == 0 or not torch.isfinite(img).all():
                     raise ValueError('Image intensity inappropriate'
                                      '(std is 0 or image has infinity')
@@ -355,7 +367,7 @@ class SegDataLoader(DataLoader):
                 last_batch_flag = ((self.num_batches-batch_count) == 2 and
                                    count == (len(aug_list) % self.batch_size))
                 if (count == self.batch_size) or last_batch_flag:
-                    yield torch.stack(data_arr),  torch.stack(label_arr),\
+                    yield torch.stack(data_arr), torch.stack(label_arr), \
                             file_name_arr
                     batch_count += 1
                     count, data_arr, label_arr, file_name_arr = 0, [], [], []
