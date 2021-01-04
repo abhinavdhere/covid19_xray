@@ -67,9 +67,9 @@ def run_model(data_handler, model, optimizer, loss_wts, gamma, amp):
     running_loss = 0
     running_dice = 0
     loss_list = {'focal_loss': 0, 'dice': 0, 'mse': 0}
-    pred_list = []
+    # pred_list = []
     label_list = []
-    softpred_list = []
+    # softpred_list = []
     if amp:
         scaler = torch.cuda.amp.GradScaler()
     with trange(num_batches, desc=process, ncols=100) as t:
@@ -108,9 +108,23 @@ def run_model(data_handler, model, optimizer, loss_wts, gamma, amp):
 
             running_loss += loss
             hardPred = torch.argmax(pred, 1)
+            # from PIL import Image
+            import config
+            import numpy as np
+            for batch_idx in range(hardPred.shape[0]):
+                np.save(
+                    config.PATH.rsplit('/', 1)[0] + '/lung_seg_raw/'
+                    + fName[batch_idx].rsplit('_', 1)[0],
+                    hardPred[batch_idx].detach().cpu().numpy()
+                )
+                # img_to_save = Image.fromarray(
+                #     hardPred[batch_idx].detach().cpu().numpy().astype('uint8'))
+            #     img_to_save.save(
+            #         config.PATH.rsplit('/', 1)[0] + '/lung_seg_noBCET/'
+            #         + fName[batch_idx].rsplit('_', 1)[0])
             running_dice += aux.integral_dice(hardPred, y_onehot[:, 1], 1)
-            pred_list.append(hardPred.cpu())
-            softpred_list.append(pred.detach().cpu())
+            # pred_list.append(hardPred.cpu())
+            # softpred_list.append(pred.detach().cpu())
             label_list.append(y.cpu())
             t.set_postfix(loss=running_loss.item()/(float(m+1)*batch_size))
             t.update()
@@ -138,6 +152,7 @@ def main():
         bestValRecord, logFile = aux.initLogging(args.saveName, 'Dice')
         with open(os.path.join('logs', bestValRecord), 'r') as statusFile:
             bestVal = float(statusFile.readline().strip('\n').split()[-1])
+    aux.log_config(logFile, args)
     loss_wts = tuple(map(float, args.lossWeights.split(',')))
     amp = (args.amp == 'True')
     # Inits
@@ -148,13 +163,13 @@ def main():
         base_aug_names[1:], 2)]
     all_aug_names += base_aug_names
     all_aug_names.remove('blur+sharpen')  # blur+sharpen is pointless
-    trn_data_handler = SegDataLoader('trn', args.foldNum, args.batchSize,
-                                     'random',
-                                     # 'random_class0_all_class1',
-                                     undersample=False, sample_size=3000,
-                                     aug_names=all_aug_names, in_channels=0)
-    val_data_handler = SegDataLoader('val', args.foldNum, args.batchSize,
-                                     'none', in_channels=0)
+    # trn_data_handler = SegDataLoader('trn', args.foldNum, args.batchSize,
+    #                                  'all',
+    #                                  # 'random_class0_all_class1',
+    #                                  undersample=False, sample_size=3000,
+    #                                  aug_names=all_aug_names, in_channels=0)
+    # val_data_handler = SegDataLoader('val', args.foldNum, args.batchSize,
+    #                                  'none', in_channels=0)
     tst_data_handler = SegDataLoader('tst', args.foldNum, args.batchSize,
                                      'none', in_channels=0)
     # model = UNet(n_classes=2).cuda()
