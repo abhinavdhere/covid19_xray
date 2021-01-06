@@ -122,11 +122,12 @@ class DataLoader:
                 self._tmp_aug_names = self._aug_names.copy()
                 self._tmp_aug_names.remove('normal')
                 for name in self._file_list:
+                    name_w_code = self.set_random_aug(name)
                     if int(name.split('_')[1]) == 2:
-                        aug_list_classA += [name+'_'+aug_name for aug_name in
-                                            self._aug_names]
+                        aug_list_classA.append(name_w_code)
+                        # aug_list_classA += [name+'_'+aug_name for aug_name in
+                        #                     self._aug_names]
                     else:
-                        name_w_code = self.set_random_aug(name)
                         aug_list_classB.append(name_w_code)
                 if self._undersample:
                     if not self._sample_size:
@@ -171,15 +172,15 @@ class DataLoader:
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         img = (img - np.mean(img)) / np.std(img)
+        if segment_lung:
+            img = self.apply_seg_mask(img, full_name.split('/')[-1],
+                                      crop=True)
         if self.in_channels == 3:
             if img.dtype == 'float64':
                 img = img.astype('float32')
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
             img = torch.Tensor(img).cuda()
             img = img.permute(2, 0, 1)
-        if segment_lung:
-            img = self.apply_seg_mask(img, full_name.split('/')[-1],
-                                      crop=True)
         if self.in_channels == 0:
             img = torch.Tensor(img).cuda()
             img = img.unsqueeze(0)
