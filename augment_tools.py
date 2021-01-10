@@ -1,3 +1,4 @@
+from itertools import combinations
 import kornia
 import torch
 import torch.nn as nn
@@ -45,6 +46,18 @@ def augment(im, aug_type, file_type='data'):
                                                   mode=mode)
         im = im[0]
     return im
+
+
+def get_combinations(base_aug_names):
+    # taking pairs of aug. types + all individual aug.
+    if 'normal' in base_aug_names:
+        base_aug_names.remove('normal')
+    all_aug_names = [combo[0]+'+'+combo[1] for combo in combinations(
+        base_aug_names[1:], 2)]
+    all_aug_names += base_aug_names
+    all_aug_names.remove('blur+sharpen')  # blur+sharpen is pointless
+    all_aug_names.insert(0, 'normal')
+    return all_aug_names
 
 
 def korniaAffine(im, parameter, aug_type, dataType='data'):

@@ -43,12 +43,12 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
     if amp:
         with torch.cuda.amp.autocast(enabled=False):
             if process == 'trn':
-                # pred, aux_pred, conicity = model.forward(X)
-                pred, aux_pred = model.forward(X)
+                pred, aux_pred, conicity = model.forward(X)
+                # pred, aux_pred = model.forward(X)
                 aux_pred = F.softmax(aux_pred, 1)
             else:
-                # pred, conicity = model.forward(X)
-                pred = model.forward(X)
+                pred, conicity = model.forward(X)
+                # pred = model.forward(X)
             pred = F.softmax(pred.float(), 1)
             main_focal_loss = focal_loss_fn(pred, y_OH)
             if process == 'trn':
@@ -59,8 +59,8 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
             else:
                 loss = loss_wts[0]*main_focal_loss
             loss_list['main_focal_loss'] += main_focal_loss
-            # loss = loss + loss_wts[2]*torch.sum(conicity)
-            # loss_list['conicity'] += torch.sum(conicity).item()
+            loss = loss + loss_wts[2]*torch.sum(conicity)
+            loss_list['conicity'] += torch.sum(conicity).item()
         # pred = model.forward(X)
     # else:
     #         if process == 'trn':
@@ -98,8 +98,8 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp):
     process = data_handler.data_type
     running_loss = 0
     # loss_list = {'main_bce': 0, 'aux_bce': 0, 'conicity': 0}
-    # loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0, 'conicity': 0}
-    loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0}
+    loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0, 'conicity': 0}
+    # loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0}
     pred_list = []
     label_list = []
     softpred_list = []
@@ -224,25 +224,21 @@ def main():
     loss_wts = tuple(map(float, args.lossWeights.split(',')))
     amp = (args.amp == 'True')
     # Inits
-    base_aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
-                      'blur', 'sharpen', 'translate']
-    # taking pairs of aug. types + all individual aug.
-    all_aug_names = [combo[0]+'+'+combo[1] for combo in combinations(
-        base_aug_names[1:], 2)]
-    all_aug_names += base_aug_names
-    all_aug_names.remove('blur+sharpen')  # blur+sharpen is pointless
+    all_aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
+                     'blur', 'sharpen', 'translate']
     trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
+                                  # 'all',
                                   # 'random',
                                   'random_class0_all_class1',
-                                  undersample=False, sample_size=500,  # 2000,
-                                  aug_names=all_aug_names, in_channels=3)
+                                  undersample=True, sample_size=5000,  # 2000,
+                                  aug_names=all_aug_names, in_channels=0)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize,
-                                  'none', in_channels=3)
+                                  'none', in_channels=0)
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize,
-                                  'none', in_channels=3)
-    # model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
-    #                num_classes=2, downsample_freq=1).cuda()
-    model = RobustDenseNet(pretrained=True, num_classes=2).cuda()
+                                  'none', in_channels=0)
+    model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
+                   num_classes=2, downsample_freq=1).cuda()
+    # model = RobustDenseNet(pretrained=True, num_classes=2).cuda()
 # print(summary(model, torch.zeros((1, 1, 512, 512)).cuda(), show_input=True))
     # model = resnet18(num_classes=2).cuda()
     model = nn.DataParallel(model)
@@ -253,10 +249,11 @@ def main():
             return 0
         elif successFlag == 1:
             print("Model loaded successfully")
-    class_wts = aux.getClassBalancedWt(0.9999, [1203, 1190+394])
+    # class_wts = aux.getClassBalancedWt(0.9999, [1203, 1190+394])
     # class_wts = aux.getClassBalancedWt(0.9999, [1190, 394])
     # class_wts = aux.getClassBalancedWt(0.9999, [8308, 5676+258])
-    # class_wts = aux.getClassBalancedWt(0.9999, [5676, 258])
+    class_wts = aux.getClassBalancedWt(0.9999, [5676, 258])
+
     # class_wts = aux.getClassBalancedWt(0.9999, [4610, 461])
     # class_wts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
     # class_wts = aux.getClassBalancedWt(0.9999, [4810, 4810])
@@ -304,18 +301,19 @@ def main():
         aux.logMetrics(1, tstMetrics, tst_loss_list, 'tst', logFile,
                        'classify')
     elif args.runMode == 'two_stage_inference':
-        model_stage1 = RobustDenseNet(pretrained=True, num_classes=2).cuda()
+        model_stage1 = RobustDenseNet(pretrained=False, num_classes=2).cuda()
         # model_stage1 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
         #                       num_classes=2, downsample_freq=1).cuda()
         model_stage1 = nn.DataParallel(model_stage1)
         model_stage2 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                               num_classes=2, downsample_freq=1).cuda()
         model_stage2 = nn.DataParallel(model_stage2)
-        flg1 = aux.loadModel('main', model_stage1,
-                             'pd_wSeg_FL_pairAug_densenet_fold1_final')
+        flg1 = aux.loadModel('chkpt', model_stage1,
+                             # 'pd_wSeg_FL_pairAug_densenet_fold1_final')
+                             'pd_stage1_wSeg_FL_pairAug_attn_fold5_rerun')
 # 'stage1_covidx_split1')
         flg2 = aux.loadModel('chkpt', model_stage2,
-                             'pd_stage2_wSeg_FL_pairAug_attn_fold1')
+                             'pd_stage2_wSeg_FL_pairAug_attn_fold5_run')
         print(flg1, flg2)
         two_stage_inference(val_data_handler, model_stage1, model_stage2)
         two_stage_inference(tst_data_handler, model_stage1, model_stage2)

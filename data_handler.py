@@ -6,9 +6,9 @@ import torch
 import cv2
 # import pydicom as dcm
 
-import aux
+# import aux
 import config
-from augment_tools import augment
+from augment_tools import augment, get_combinations
 
 
 class DataLoader:
@@ -63,8 +63,8 @@ class DataLoader:
         """
         # allFileList = os.listdir(os.path.join(path, data_type))
         if self.data_type == 'val':
-            # flist_name = (config.PATH_FLIST + '/val.txt')
-            flist_name = (config.PATH_FLIST + '/5fold_split_val.txt')
+            flist_name = (config.PATH_FLIST + '/val.txt')
+            # flist_name = (config.PATH_FLIST + '/5fold_split_val.txt')
         else:
             # flist_name = (config.PATH_FLIST + '/' + self.data_type + '.txt')
             flist_name = (config.PATH_FLIST + '/5fold_split_' +
@@ -80,7 +80,7 @@ class DataLoader:
                     file_list.append(file_name)
         return file_list
 
-    def set_random_aug(self, name):
+    def set_random_aug(self, name, aug_names):
         '''Set random augmentation flag while maintaining 50% chance of having
         normal (i.e. no aug) and 50% of any other augmentation.
 
@@ -91,7 +91,7 @@ class DataLoader:
         '''
         augment_flag = np.random.choice([0, 1, 2, 3])
         if augment_flag:
-            aug_name = np.random.choice(self._tmp_aug_names)
+            aug_name = np.random.choice(aug_names)
         else:
             aug_name = 'normal'
         name_w_code = name+'_'+aug_name
@@ -107,8 +107,8 @@ class DataLoader:
         aug_list = []
         if self.data_type == 'trn':
             if self._aug_setup == 'random':
-                self._tmp_aug_names = self._aug_names.copy()
-                self._tmp_aug_names.remove('normal')
+                _tmp_aug_names = self._aug_names.copy()
+                _tmp_aug_names.remove('normal')
                 for name in self._file_list:
                     name_w_code = self.set_random_aug(name)
                     aug_list.append(name_w_code)
@@ -119,14 +119,16 @@ class DataLoader:
             elif self._aug_setup == 'random_class0_all_class1':
                 aug_list_classA = []
                 aug_list_classB = []
-                self._tmp_aug_names = self._aug_names.copy()
-                self._tmp_aug_names.remove('normal')
+                _tmp_aug_names = self._aug_names.copy()
+                _tmp_aug_names = get_combinations(_tmp_aug_names)
+                # _tmp_aug_names.remove('normal')
                 for name in self._file_list:
-                    name_w_code = self.set_random_aug(name)
+                    name_w_code = self.set_random_aug(name, _tmp_aug_names)
                     if int(name.split('_')[1]) == 2:
-                        aug_list_classA.append(name_w_code)
-                        # aug_list_classA += [name+'_'+aug_name for aug_name in
-                        #                     self._aug_names]
+                        # aug_list_classA.append(name_w_code)
+                        aug_list_classA += [name+'_'+aug_name for aug_name in
+                                            _tmp_aug_names]
+
                     else:
                         aug_list_classB.append(name_w_code)
                 if self._undersample:
@@ -139,6 +141,20 @@ class DataLoader:
                     aug_list = aug_list_classA + aug_list_classB.tolist()
                 else:
                     aug_list = aug_list_classA + aug_list_classB
+            elif self._aug_setup == 'unequal_all':
+                aug_list_classA = []
+                aug_list_classB = []
+                _tmp_aug_namesA = self._aug_names.copy()
+                _tmp_aug_namesB = get_combinations(_tmp_aug_namesA.copy())
+                for name in self._file_list:
+                    if int(name.split('_')[1]) == 2:
+                        aug_list_classB += [name+'_'+aug_name for aug_name in
+                                            _tmp_aug_namesB]
+                    else:
+                        aug_list_classA += [name+'_'+aug_name for aug_name in
+                                            _tmp_aug_namesA]
+                aug_list = aug_list_classA + aug_list_classB
+
             aug_list = np.random.permutation(aug_list)
         else:
             aug_list += [name+'_normal' for name in self._file_list]
