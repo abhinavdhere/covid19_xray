@@ -115,7 +115,7 @@ def run_model(data_handler, model, optimizer, loss_wts, gamma, amp):
                 np.save(
                     config.PATH.rsplit('/', 1)[0] + '/lung_seg_raw/'
                     + fName[batch_idx].rsplit('_', 1)[0],
-                    hardPred[batch_idx].detach().cpu().numpy()
+                    hardPred[batch_idx].detach().cpu().numpy().astype('uint8')
                 )
                 # img_to_save = Image.fromarray(
                 #     hardPred[batch_idx].detach().cpu().numpy().astype('uint8'))

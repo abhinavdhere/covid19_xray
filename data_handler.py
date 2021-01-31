@@ -63,8 +63,8 @@ class DataLoader:
         """
         # allFileList = os.listdir(os.path.join(path, data_type))
         if self.data_type == 'val':
-            flist_name = (config.PATH_FLIST + '/val.txt')
-            # flist_name = (config.PATH_FLIST + '/5fold_split_val.txt')
+            # flist_name = (config.PATH_FLIST + '/val.txt')
+            flist_name = (config.PATH_FLIST + '/5fold_split_val.txt')
         else:
             # flist_name = (config.PATH_FLIST + '/' + self.data_type + '.txt')
             flist_name = (config.PATH_FLIST + '/5fold_split_' +
@@ -262,6 +262,10 @@ class DataLoader:
                 try:
                     img = self.preprocess_data(name_w_path, aug_name,
                                                segment_lung=True)
+                    # Diagnostic option - to save images the way they are
+                    # just before going into the network
+                    # np.save('test_data_to_check/'
+                    #         + file_name + '.npy', img.detach().cpu().numpy())
                 except cv2.error:
                     import pdb
                     pdb.set_trace()

@@ -169,6 +169,12 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp):
             # optimal_idx = np.argmax(fscore)
             optimal_threshold = thresholds[optimal_idx]
             print("Threshold value is:", optimal_threshold)
+        # from sklearn.metrics import classification_report
+        # import pdb
+        # pdb.set_trace()
+        # report = classification_report(torch.cat(label_list).tolist(),
+        #                                torch.cat(pred_list).tolist(),
+        #                                target_names=['Pneumonia', 'COVID'])
         metrics = config.Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
                                  precision_recall_arr)
         # print(metrics.Acc, metrics.F1)
@@ -227,10 +233,10 @@ def main():
     all_aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
                      'blur', 'sharpen', 'translate']
     trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
-                                  # 'all',
+                                  'unequal_all',
                                   # 'random',
-                                  'random_class0_all_class1',
-                                  undersample=True, sample_size=5000,  # 2000,
+                                  # 'random_class0_all_class1',
+                                  undersample=False, sample_size=2000,
                                   aug_names=all_aug_names, in_channels=0)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize,
                                   'none', in_channels=0)
