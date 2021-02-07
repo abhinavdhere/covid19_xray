@@ -3,7 +3,6 @@ Primary module. Includes dataloader,  trn/val/test functions. Reads
 options from user and runs training.
 '''
 import os
-from itertools import combinations
 # import pdb
 
 import torch
@@ -11,7 +10,6 @@ import torch.nn.functional as F
 import torch.nn as nn
 # import torchvision
 from tqdm import trange
-import numpy as np
 import sklearn.metrics
 # import pydicom as dcm
 # from pytorch_model_summary import summary
@@ -76,7 +74,8 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
     return pred, loss, loss_list
 
 
-def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp):
+def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp,
+              save_name):
     '''
     Loads data from given data_handler object, runs model prediction,
     collects losses/metrics and computes gradient & updates weights
@@ -89,6 +88,7 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp):
         loss_wts (List[float]): weightage for loss functions
         gamma (int): focusing factor gamma for focal loss
         amp (bool): Whether to use mixed precision
+        save_name (str): name of model (for saving predictions)
     Returns:
         metrics (NamedTuple[Metrics]): Containing selected metrics for epoch
         loss_list (dict): Dictionary containing breakup of loss over the epoch
@@ -103,15 +103,13 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp):
     pred_list = []
     label_list = []
     softpred_list = []
-    find_optimal_threshold = False
+    filename_list = []
     if amp:
         scaler = torch.cuda.amp.GradScaler()
     with trange(num_batches, desc=process, ncols=100) as t:
         for m in range(num_batches):
-            X, y, file_name = data_handler.datagen.__next__()
+            X, y, file_names = data_handler.datagen.__next__()
             y_onehot = aux.toCategorical(y).cuda()
-            # print(file_name)
-            # pdb.set_trace()
             if process == 'trn':
                 optimizer.zero_grad()
                 model.train()
@@ -137,11 +135,10 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp):
                     )
             running_loss += loss
             hardPred = torch.argmax(pred, 1)
-            # hardPred = (pred[:, 1] > 0.983).int()
-            # hardPred = (pred[:, 1] > 0.2181).int()
             pred_list.append(hardPred.cpu())
             softpred_list.append(pred.detach().cpu())
             label_list.append(y.cpu())
+            filename_list += file_names
             t.set_postfix(loss=running_loss.item()/(float(m+1)*batch_size))
             t.update()
         finalLoss = running_loss/(float(m+1)*batch_size)
@@ -154,27 +151,8 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp):
         auroc, auprc, fpr_tpr_arr, precision_recall_arr = aux.AUC(
             softpred_list, label_list
         )
-        if find_optimal_threshold and process == 'val':
-            softpred_list = np.concatenate(softpred_list, 0)
-            label_list = np.concatenate(label_list, 0)
-            fpr, tpr, thresholds = sklearn.metrics.roc_curve(
-                label_list, softpred_list[:, 1], pos_label=1
-            )
-            # precision, recall, thresholds = \
-            #     sklearn.metrics.precision_recall_curve(label_list,
-            #                                            softpred_list[:, 1],
-            #                                            pos_label=1)
-            optimal_idx = np.argmax(tpr - fpr)
-            # fscore = (2 * precision * recall) / (precision + recall)
-            # optimal_idx = np.argmax(fscore)
-            optimal_threshold = thresholds[optimal_idx]
-            print("Threshold value is:", optimal_threshold)
-        # from sklearn.metrics import classification_report
-        # import pdb
-        # pdb.set_trace()
-        # report = classification_report(torch.cat(label_list).tolist(),
-        #                                torch.cat(pred_list).tolist(),
-        #                                target_names=['Pneumonia', 'COVID'])
+        aux.save_predictions(save_name, process, filename_list, softpred_list,
+                             pred_list, label_list)
         metrics = config.Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
                                  precision_recall_arr)
         # print(metrics.Acc, metrics.F1)
@@ -188,7 +166,7 @@ def two_stage_inference(data_handler, model1, model2):
     softpred_list = []
     num_batches = data_handler.num_batches
     for m in range(num_batches):
-        X, y, file_name = data_handler.datagen.__next__()
+        X, y, file_names = data_handler.datagen.__next__()
         # y_onehot = aux.toCategorical(y).cuda()
         model1.eval()
         model2.eval()
@@ -233,8 +211,8 @@ def main():
     all_aug_names = ['normal', 'rotated', 'gaussNoise', 'mirror',
                      'blur', 'sharpen', 'translate']
     trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
-                                  'unequal_all',
-                                  # 'random',
+                                  # 'unequal_all',
+                                  'random',
                                   # 'random_class0_all_class1',
                                   undersample=False, sample_size=2000,
                                   aug_names=all_aug_names, in_channels=0)
@@ -258,7 +236,8 @@ def main():
     # class_wts = aux.getClassBalancedWt(0.9999, [1203, 1190+394])
     # class_wts = aux.getClassBalancedWt(0.9999, [1190, 394])
     # class_wts = aux.getClassBalancedWt(0.9999, [8308, 5676+258])
-    class_wts = aux.getClassBalancedWt(0.9999, [5676, 258])
+    # class_wts = aux.getClassBalancedWt(0.9999, [5676, 258])
+    class_wts = aux.getClassBalancedWt(0.9999, [7081+442, 4854+302])
 
     # class_wts = aux.getClassBalancedWt(0.9999, [4610, 461])
     # class_wts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
@@ -277,12 +256,12 @@ def main():
                            'classify')
             torch.save(model.state_dict(), 'savedModels/'+args.saveName+'.pt')
         # epochNum = 0
-            # valMetrics, val_loss_list = run_model(
-            #     val_data_handler, model, optimizer, class_wts, loss_wts,
-            #     args.gamma, amp
-            # )
-            # aux.logMetrics(epochNum, valMetrics, val_loss_list, 'val', logFile,
-            #                'classify')
+# valMetrics, val_loss_list = run_model(
+#     val_data_handler, model, optimizer, class_wts, loss_wts,
+#     args.gamma, amp
+# )
+# aux.logMetrics(epochNum, valMetrics, val_loss_list, 'val', logFile,
+#                'classify')
             tstMetrics, tst_loss_list = run_model(
                 tst_data_handler, model, optimizer, class_wts, loss_wts,
                 args.gamma, amp
@@ -302,7 +281,7 @@ def main():
     elif args.runMode == 'tst':
         tstMetrics, tst_loss_list = run_model(
             tst_data_handler, model, optimizer, class_wts, loss_wts,
-            args.gamma, amp
+            args.gamma, amp, args.saveName
         )
         aux.logMetrics(1, tstMetrics, tst_loss_list, 'tst', logFile,
                        'classify')

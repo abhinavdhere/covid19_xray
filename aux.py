@@ -71,13 +71,13 @@ def logMetrics(epochNum, metrics, loss_list, process, logFile, task):
     if logFile:
         with open(os.path.join('logs', logFile), 'a') as f:
             f.write(line)
-    # np.savetxt('logs/FprTpr_'+saveName.split('.')[0] + '.csv',
+    # np.savetxt('logs/FprTpr_'+save_name.split('.')[0] + '.csv',
     #            metrics.fpr_tpr_arr, delimiter=', ')
-    # np.savetxt('logs/PrecisionRecall_'+saveName.split('.')[0] + '.csv',
+    # np.savetxt('logs/PrecisionRecall_'+save_name.split('.')[0] + '.csv',
     #            metrics.precision_recall_arr, delimiter=', ')
 
 
-def loadModel(loadModelFlag, model, saveName):
+def loadModel(loadModelFlag, model, save_name):
     '''
     Load saved weights. loadModelFlag: main, chkpt or None.
     Sends abort signal if saved model does not exist.
@@ -85,10 +85,10 @@ def loadModel(loadModelFlag, model, saveName):
     try:
         if loadModelFlag == 'main':
             model.load_state_dict(torch.load(os.path.join('savedModels',
-                                                          saveName+'.pt')))
+                                                          save_name+'.pt')))
         elif loadModelFlag == 'chkpt':
             model.load_state_dict(torch.load('savedModels/chkpt_'
-                                             + saveName+'.pt'))
+                                             + save_name+'.pt'))
         successFlag = 1
     except FileNotFoundError:
         print('Model does not exist! Aborting...')
@@ -119,13 +119,13 @@ def save_chkpt(best_val_record, best_val, metric_val, metric_name, model,
     return best_val
 
 
-def initLogging(saveName, metric_name):
+def initLogging(save_name, metric_name):
     '''
     Create files for storing best metric value and logs if not existing
     already. Returns names of the files.
     '''
-    bestValRecord = 'bestVal_'+saveName+'.txt'
-    logFile = 'log_'+saveName+'.txt'
+    bestValRecord = 'bestVal_'+save_name+'.txt'
+    logFile = 'log_'+save_name+'.txt'
     if not os.path.exists(os.path.join('logs', bestValRecord)):
         os.system('echo "Best '+metric_name+' so far: 0.0" > '
                   + os.path.join('logs', bestValRecord))
@@ -155,15 +155,42 @@ def log_config(log_file_name, args):
         f.write('\n')
 
 
+def save_predictions(save_name, process, filename_list, softpred_list,
+                     pred_list, label_list):
+    """
+    Save soft & thresholded predictions to a csv for later analysis
+    Args:
+        save_name (str): name of model
+        process (str): 'trn', 'val', or 'tst'
+        filename_list (List[str]): names of images
+        softpred_list (List[torch.Tensor]): output of softmax from model -
+                                            shape(n, 2)
+        pred_list (List[torch.Tensor]): hard thresholded predictions -
+                                        shape(n,)
+        label_list (List[torch.Tensor]): labels - shape(n, 1)
+    """
+    softpred_list, pred_list, label_list = list(
+        map(np.concatenate, [softpred_list, pred_list, label_list], [0]*3))
+    pred_list = np.expand_dims(pred_list, -1)
+    filename_list = np.expand_dims(np.array(filename_list), -1)
+    all_data = np.concatenate((filename_list, softpred_list, pred_list,
+                               label_list), 1)
+    header = np.array([['Image_name', 'Probability_0', 'Probability_1',
+                        'Predictions', 'Labels']])
+    all_data = np.concatenate((header, all_data), 0)
+    np.savetxt(f'predictions/{save_name.split(".")[0]}_{process}_preds.csv',
+               all_data, delimiter=',', fmt='%s')
+
+
 # #--------- Loss functions ------------
-def getClassBalancedWt(beta, samplesPerCls, nClasses=2):
+def getClassBalancedWt(beta, samples_per_cls, num_classes=2):
     '''
     As per https://towardsdatascience.com/handling-class-imbalanced-data-
     using-a-loss-specifically-made-for-it-6e58fd65ffab
     '''
-    effectiveNum = 1.0 - np.power(beta, samplesPerCls)
-    weights = (1.0 - beta) / np.array(effectiveNum)
-    weights = weights / np.sum(weights) * nClasses
+    effective_num = 1.0 - np.power(beta, samples_per_cls)
+    weights = (1.0 - beta) / np.array(effective_num)
+    weights = weights / np.sum(weights) * num_classes
     return torch.Tensor(weights).cuda()
 
 
@@ -191,10 +218,10 @@ class FocalLoss(nn.Module):
 
 
 def weightedBCE(weight, pred, target):
-    normVal = 1e-24
+    norm_val = 1e-24
     weights = 1 + (weight-1)*target
-    loss = -((weights*target)*pred.clamp(min=normVal).log()
-             + (1-target)*(1-pred).clamp(min=normVal).log()).sum()
+    loss = -((weights*target)*pred.clamp(min=norm_val).log()
+             + (1-target)*(1-pred).clamp(min=norm_val).log()).sum()
     return loss
 
 
@@ -250,22 +277,22 @@ def integral_dice(pred, gt, k):
              + torch.sum(gt[gt == k] == k)).float()))
 
 
-def AUC(soft_predList, labelList):
+def AUC(softpred_list, label_list):
     """
     Use the probabilities to get AUROC and AUPRC values.
     """
     # pdb.set_trace()
-    if isinstance(soft_predList, list):
-        soft_predList = np.concatenate(soft_predList, 0)
-    if isinstance(labelList, list):
-        labelList = np.concatenate(labelList, 0)
-    fpr, tpr, threshold = sklearn.metrics.roc_curve(labelList,
-                                                    soft_predList[:, 1],
+    if isinstance(softpred_list, list):
+        softpred_list = np.concatenate(softpred_list, 0)
+    if isinstance(label_list, list):
+        label_list = np.concatenate(label_list, 0)
+    fpr, tpr, threshold = sklearn.metrics.roc_curve(label_list,
+                                                    softpred_list[:, 1],
                                                     pos_label=1)
     auc_roc = sklearn.metrics.auc(fpr, tpr)
     precision, recall,\
-        threshold = sklearn.metrics.precision_recall_curve(labelList,
-                                                           soft_predList[:, 1],
+        threshold = sklearn.metrics.precision_recall_curve(label_list,
+                                                           softpred_list[:, 1],
                                                            pos_label=1)
     auc_prc = sklearn.metrics.auc(recall, precision)
     # save fpr & tpr for plotting
@@ -274,16 +301,16 @@ def AUC(soft_predList, labelList):
     return auc_roc, auc_prc, fpr_tpr_arr, precision_recall_arr
 
 
-def globalAcc(predList, labelList):
+def globalAcc(pred_list, label_list):
     '''
     Compute accuracy based on all predictions and labels at the end of an
     epoch.
     '''
-    if not isinstance(predList, torch.Tensor):
-        predList = torch.cat(predList)
-    if not isinstance(labelList, torch.Tensor):
-        labelList = torch.cat(labelList)
-    acc = torch.sum(predList == labelList[:, 0]).float()/(predList.shape[0])
+    if not isinstance(pred_list, torch.Tensor):
+        pred_list = torch.cat(pred_list)
+    if not isinstance(label_list, torch.Tensor):
+        label_list = torch.cat(label_list)
+    acc = torch.sum(pred_list == label_list[:, 0]).float()/(pred_list.shape[0])
     return acc
 
 
