@@ -141,23 +141,68 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp,
             filename_list += file_names
             t.set_postfix(loss=running_loss.item()/(float(m+1)*batch_size))
             t.update()
-        finalLoss = running_loss/(float(m+1)*batch_size)
+        final_loss = running_loss/(float(m+1)*batch_size)
         for loss_name in loss_list.keys():
             loss_list[loss_name] /= (float(m+1)*batch_size)
-        acc = aux.globalAcc(pred_list, label_list)
-        f1 = sklearn.metrics.f1_score(torch.cat(label_list),
-                                      torch.cat(pred_list),  labels=None,
-                                      average='binary')
-        auroc, auprc, fpr_tpr_arr, precision_recall_arr = aux.AUC(
-            softpred_list, label_list
-        )
-        aux.save_predictions(save_name, process, filename_list, softpred_list,
-                             pred_list, label_list)
-        metrics = config.Metrics(finalLoss, acc, f1, auroc, auprc, fpr_tpr_arr,
-                                 precision_recall_arr)
+        metrics = compute_metrics(pred_list, label_list, softpred_list,
+                                  filename_list, final_loss, process,
+                                  save_name)
         # print(metrics.Acc, metrics.F1)
         # metrics = config.Metrics(finalLoss, acc, f1, 0, 0, None, None)
         return metrics, loss_list
+
+
+def test_time_aug(process, model, aug_names, class_wts, loss_wts, gamma,
+                  fold_num, save_name):
+    pred_list = []
+    label_list = []
+    softpred_list = []
+    filename_list = []
+    running_loss = 0
+    loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0, 'conicity': 0}
+    data_handler = DataLoader(process, fold_num, len(aug_names),
+                              'all', in_channels=0, aug_names=aug_names)
+    num_batches = data_handler.num_batches
+    with trange(num_batches, desc=process, ncols=100) as t:
+        for m in range(num_batches):
+            X, y, file_names = data_handler.datagen.__next__()
+            y_onehot = aux.toCategorical(y).cuda()
+            model.eval()
+            with torch.no_grad():
+                pred, loss, loss_list = predict_compute_loss(
+                    X, model, y_onehot, class_wts, loss_wts, loss_list,
+                    process, gamma, amp=True
+                )
+                pred = pred.mean(axis=0).unsqueeze(0)
+                running_loss += loss
+                hardPred = torch.argmax(pred, 1)
+                pred_list.append(hardPred.cpu())
+                softpred_list.append(pred.detach().cpu())
+                label_list.append(y[0].cpu().unsqueeze(0))
+                filename_list.append(file_names[0])
+                t.set_postfix(loss=running_loss.item()/(float(m+1)*7))
+                t.update()
+    final_loss = running_loss/(float(m+1))
+    metrics = compute_metrics(pred_list, label_list, softpred_list,
+                              filename_list, final_loss, process,
+                              save_name+'_tta')
+    return metrics, loss_list
+
+
+def compute_metrics(pred_list, label_list, softpred_list, filename_list,
+                    final_loss, process, save_name):
+    acc = aux.globalAcc(pred_list, label_list)
+    f1 = sklearn.metrics.f1_score(torch.cat(label_list),
+                                  torch.cat(pred_list),  labels=None,
+                                  average='binary')
+    auroc, auprc, fpr_tpr_arr, precision_recall_arr = aux.AUC(
+        softpred_list, label_list
+    )
+    aux.save_predictions(save_name, process, filename_list, softpred_list,
+                         pred_list, label_list)
+    metrics = config.Metrics(final_loss, acc, f1, auroc, auprc, fpr_tpr_arr,
+                             precision_recall_arr)
+    return metrics
 
 
 def two_stage_inference(data_handler, model1, model2):
@@ -217,9 +262,9 @@ def main():
                                   undersample=False, sample_size=2000,
                                   aug_names=all_aug_names, in_channels=0)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize,
-                                  'none', in_channels=0)
+                                  None, in_channels=0)
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize,
-                                  'none', in_channels=0)
+                                  None, in_channels=0)
     model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                    num_classes=2, downsample_freq=1).cuda()
     # model = RobustDenseNet(pretrained=True, num_classes=2).cuda()
@@ -271,20 +316,6 @@ def main():
                                          'F1', model, args.saveName)
             aux.logMetrics(epochNum, tstMetrics, tst_loss_list, 'tst', logFile,
                            'classify')
-    elif args.runMode == 'val':
-        valMetrics, val_loss_list = run_model(
-            val_data_handler, model, optimizer, class_wts, loss_wts,
-            args.gamma, amp
-        )
-        aux.logMetrics(1, valMetrics, val_loss_list, 'val', logFile,
-                       'classify')
-    elif args.runMode == 'tst':
-        tstMetrics, tst_loss_list = run_model(
-            tst_data_handler, model, optimizer, class_wts, loss_wts,
-            args.gamma, amp, args.saveName
-        )
-        aux.logMetrics(1, tstMetrics, tst_loss_list, 'tst', logFile,
-                       'classify')
     elif args.runMode == 'two_stage_inference':
         model_stage1 = RobustDenseNet(pretrained=False, num_classes=2).cuda()
         # model_stage1 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
@@ -302,6 +333,23 @@ def main():
         print(flg1, flg2)
         two_stage_inference(val_data_handler, model_stage1, model_stage2)
         two_stage_inference(tst_data_handler, model_stage1, model_stage2)
+    else:
+        if args.runMode == 'val':
+            data_handler = val_data_handler
+        elif args.runMode == 'tst':
+            data_handler = tst_data_handler
+        if args.tta == 'True':
+            metrics, loss_list = test_time_aug(
+                args.runMode, model, all_aug_names, class_wts, loss_wts,
+                args.gamma, args.foldNum, args.saveName
+            )
+        else:
+            metrics, loss_list = run_model(
+                data_handler, model, optimizer, class_wts, loss_wts,
+                args.gamma, amp, args.saveName
+            )
+        aux.logMetrics(1, metrics, loss_list, args.runMode, logFile,
+                       'classify')
 
 
 if __name__ == '__main__':

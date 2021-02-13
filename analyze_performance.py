@@ -12,6 +12,7 @@ class PredAnalyzer:
         self.softpred_list = all_data[1:, 1:3].astype('float32')
         self.pred_list = all_data[1:, 3].astype('uint8')
         self.label_list = all_data[1:, 4].astype('uint8')
+        self.name_list = all_data[1:, 0]
 
     def optimize_threshold(self, measure):
         if measure == 'AUROC':
@@ -30,17 +31,12 @@ class PredAnalyzer:
         print("Threshold value is:", optimal_threshold)
         return optimal_threshold
 
-    def test_time_aug(self):
-        pass
-
     def get_analysis(self, target_names, tta=False, thresh_optim=None):
         if thresh_optim:
             threshold = self.optimize_threshold(thresh_optim)
-            pred_list = (self.softpred_list[:, 1] > threshold).int()
+            pred_list = (self.softpred_list[:, 1] > threshold).astype('uint8')
         else:
             pred_list = self.pred_list
-        if tta:
-            self.test_time_aug()
         print('Confusion matrix is:')
         conf_mat = sklearn.metrics.confusion_matrix(self.label_list.tolist(),
                                                     pred_list.tolist())
@@ -68,7 +64,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     tta = (args.test_time_aug == 'True')
     target_names = args.classes.split(',')
-    filename = f'predictions/{args.modelname}_{args.data_category}_preds.csv'
+    if tta:
+        filename = (f'predictions/{args.modelname}_tta_'
+                    f'{args.data_category}_preds.csv')
+    else:
+        filename = (f'predictions/{args.modelname}_'
+                    f'{args.data_category}_preds.csv')
     print(f'{args.data_category} data for the model {args.modelname}')
     print(f'Test time augmentation is {tta} and threshold '
           f'optimization is {args.optimize_threshold}.')

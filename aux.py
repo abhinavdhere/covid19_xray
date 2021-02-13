@@ -42,6 +42,8 @@ def getOptions():
                         default="all")
     parser.add_argument("--amp", help="Whether mixed precision will be used"
                         ". Valid values are True or False", default='False')
+    parser.add_argument("--tta", help="Whether to use test time augmentation",
+                        default='False')
     return parser
 
 
