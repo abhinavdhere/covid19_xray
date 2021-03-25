@@ -7,12 +7,14 @@ from sklearn.metrics import classification_report
 
 
 class PredAnalyzer:
-    def __init__(self, filename):
+    def __init__(self, filename, tta, thresh_optim):
         all_data = np.loadtxt(filename, delimiter=',', dtype=str)
         self.softpred_list = all_data[1:, 1:3].astype('float32')
         self.pred_list = all_data[1:, 3].astype('uint8')
         self.label_list = all_data[1:, 4].astype('uint8')
         self.name_list = all_data[1:, 0]
+        self.tta = tta
+        self.thresh_optim = thresh_optim
 
     def optimize_threshold(self, measure):
         if measure == 'AUROC':
@@ -31,23 +33,26 @@ class PredAnalyzer:
         print("Threshold value is:", optimal_threshold)
         return optimal_threshold
 
-    def get_analysis(self, target_names, tta=False, thresh_optim=None):
-        if thresh_optim:
-            threshold = self.optimize_threshold(thresh_optim)
+    def get_analysis(self, target_names, silent=False):
+        if self.thresh_optim:
+            threshold = self.optimize_threshold(self.thresh_optim)
             pred_list = (self.softpred_list[:, 1] > threshold).astype('uint8')
         else:
             pred_list = self.pred_list
-        print('Confusion matrix is:')
         conf_mat = sklearn.metrics.confusion_matrix(self.label_list.tolist(),
                                                     pred_list.tolist())
-        print(tabulate([[target_names[0], conf_mat[0, 0], conf_mat[0, 1]],
-                        [target_names[1], conf_mat[1, 0], conf_mat[1, 1]]],
-                       headers=[target_names[0], target_names[1]]))
-        print('Metrics are:')
         report = classification_report(self.label_list.tolist(),
                                        pred_list.tolist(),
-                                       target_names=target_names)
-        print(report)
+                                       target_names=target_names, digits=4)
+        if not silent:
+            print('Confusion matrix is:')
+            print(tabulate([[target_names[0], conf_mat[0, 0], conf_mat[0, 1]],
+                            [target_names[1], conf_mat[1, 0], conf_mat[1, 1]]],
+                           headers=[target_names[0], target_names[1]]))
+            print('Metrics are:')
+            print(report)
+        else:
+            return pred_list
 
 
 if __name__ == '__main__':
@@ -74,5 +79,5 @@ if __name__ == '__main__':
     print(f'Test time augmentation is {tta} and threshold '
           f'optimization is {args.optimize_threshold}.')
     print(f'Classes are {target_names}')
-    analyzer = PredAnalyzer(filename)
-    analyzer.get_analysis(target_names, tta, args.optimize_threshold)
+    analyzer = PredAnalyzer(filename, tta, args.optimize_threshold)
+    analyzer.get_analysis(target_names)
