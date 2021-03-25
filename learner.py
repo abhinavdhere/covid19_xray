@@ -20,6 +20,7 @@ from data_handler import DataLoader
 # from aux import weightedBCE as lossFun
 from model import ResNet
 from exp_models import RobustDenseNet
+from analyze_performance import PredAnalyzer
 # from unet import UNet
 # from resnet import resnet18
 
@@ -190,7 +191,7 @@ def test_time_aug(process, model, aug_names, class_wts, loss_wts, gamma,
 
 
 def compute_metrics(pred_list, label_list, softpred_list, filename_list,
-                    final_loss, process, save_name):
+                    final_loss, process, save_name, plot=None):
     acc = aux.globalAcc(pred_list, label_list)
     f1 = sklearn.metrics.f1_score(torch.cat(label_list),
                                   torch.cat(pred_list),  labels=None,
@@ -198,6 +199,10 @@ def compute_metrics(pred_list, label_list, softpred_list, filename_list,
     auroc, auprc, fpr_tpr_arr, precision_recall_arr = aux.AUC(
         softpred_list, label_list
     )
+    if plot == 'AUROC':
+        display = sklearn.metrics.RocCurveDisplay(fpr=fpr, tpr=tpr, roc_auc=auroc)
+        display.plot()
+        plt.show()
     aux.save_predictions(save_name, process, filename_list, softpred_list,
                          pred_list, label_list)
     metrics = config.Metrics(final_loss, acc, f1, auroc, auprc, fpr_tpr_arr,
@@ -236,6 +241,49 @@ def two_stage_inference(data_handler, model1, model2):
     print(acc, f1)
 
 
+def two_stage_inference_offline(analyzer_stg1, analyzer_stg2, model_stg2,
+                                tst_data_handler):
+    """
+    Use saved predictions from the two stages to obtain overall performance
+    """
+    pred_list_stg1 = analyzer_stg1.get_analysis(['Normal', 'Pneumonia'],
+                                                silent=True)
+    pred_list_stg2 = analyzer_stg2.get_analysis(['Pneumonia', 'COVID'],
+                                                silent=True)
+    name_list_stg1 = analyzer_stg1.name_list
+    name_list_stg2 = analyzer_stg2.name_list
+    stg2_map = {}
+    final_pred_list = []
+    for idx, name in enumerate(name_list_stg2):
+        stg2_map[name] = pred_list_stg2[idx]
+
+    ct = 0
+    for idx, name in enumerate(name_list_stg1):
+        pred_stg1 = pred_list_stg1[idx]
+        if pred_stg1 == 1:
+            if name in name_list_stg2:
+                pred_stg2 = stg2_map[name]
+            else:
+                # for case when a sample was misclassified as normal in stage1
+                ct += 1
+                img = tst_data_handler.preprocess_data(
+                    config.PATH+'/'+name.rsplit('_', 1)[0], 'normal', False)
+                model_stg2.eval()
+                pred_soft, _ = model_stg2.forward(img.unsqueeze(0))
+                pred_soft = F.softmax(pred_soft, 1)
+                pred_stg2 = torch.argmax(pred_soft).item()
+            pred = pred_stg2 + 1
+        else:
+            pred = pred_stg1
+        final_pred_list.append(pred)
+    label_list = [int(name.split('_')[1]) for name in name_list_stg1]
+    report = sklearn.metrics.classification_report(
+        label_list, final_pred_list,
+        target_names=['Normal', 'Pneumonia', 'COVID'], digits=4)
+    print(report)
+    print(ct)
+
+
 def main():
     # Take options and hyperparameters from user
     torch.autograd.set_detect_anomaly(True)
@@ -259,7 +307,7 @@ def main():
                                   # 'unequal_all',
                                   'random',
                                   # 'random_class0_all_class1',
-                                  undersample=False, sample_size=2000,
+                                  undersample=False, sample_size=1000,
                                   aug_names=all_aug_names, in_channels=0)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize,
                                   None, in_channels=0)
@@ -282,11 +330,14 @@ def main():
     # class_wts = aux.getClassBalancedWt(0.9999, [1190, 394])
     # class_wts = aux.getClassBalancedWt(0.9999, [8308, 5676+258])
     # class_wts = aux.getClassBalancedWt(0.9999, [5676, 258])
-    class_wts = aux.getClassBalancedWt(0.9999, [7081+442, 4854+302])
+    # class_wts = aux.getClassBalancedWt(0.9999, [7081+442, 4854+302])
 
     # class_wts = aux.getClassBalancedWt(0.9999, [4610, 461])
     # class_wts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
-    # class_wts = aux.getClassBalancedWt(0.9999, [4810, 4810])
+    class_wts = aux.getClassBalancedWt(0.9999, [4810, 4810])
+
+    # class_wts = aux.getClassBalancedWt(0.9999, [4800, 4761])
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
     # # Learning
@@ -295,7 +346,8 @@ def main():
                               + args.nEpochs):
             trnMetrics, trn_loss_list = run_model(
                 trn_data_handler, model, optimizer, class_wts,
-                loss_wts=loss_wts, gamma=args.gamma, amp=amp
+                loss_wts=loss_wts, gamma=args.gamma, amp=amp,
+                save_name=args.saveName
             )
             aux.logMetrics(epochNum, trnMetrics, trn_loss_list, 'trn', logFile,
                            'classify')
@@ -309,7 +361,7 @@ def main():
 #                'classify')
             tstMetrics, tst_loss_list = run_model(
                 tst_data_handler, model, optimizer, class_wts, loss_wts,
-                args.gamma, amp
+                args.gamma, amp, args.saveName
             )
             if bestValRecord and tstMetrics.F1 > bestVal:
                 bestVal = aux.save_chkpt(bestValRecord, bestVal, tstMetrics.F1,
@@ -320,19 +372,34 @@ def main():
         model_stage1 = RobustDenseNet(pretrained=False, num_classes=2).cuda()
         # model_stage1 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
         #                       num_classes=2, downsample_freq=1).cuda()
-        model_stage1 = nn.DataParallel(model_stage1)
+        # model_stage1 = nn.DataParallel(model_stage1)
         model_stage2 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
                               num_classes=2, downsample_freq=1).cuda()
         model_stage2 = nn.DataParallel(model_stage2)
         flg1 = aux.loadModel('chkpt', model_stage1,
                              # 'pd_wSeg_FL_pairAug_densenet_fold1_final')
-                             'pd_stage1_wSeg_FL_pairAug_attn_fold5_rerun')
+                             'covidx_stage1_noSeg_FL_pairAug_fold0')
 # 'stage1_covidx_split1')
         flg2 = aux.loadModel('chkpt', model_stage2,
-                             'pd_stage2_wSeg_FL_pairAug_attn_fold5_run')
+                             'covidx_stage2_noSeg_FL_pairAug_attn_fold0')
         print(flg1, flg2)
         two_stage_inference(val_data_handler, model_stage1, model_stage2)
         two_stage_inference(tst_data_handler, model_stage1, model_stage2)
+    elif args.runMode == 'two_stage_inference_offline':
+        filename1 = (
+            'predictions/bimcv_stage1_wSeg_FL_pairAug_tst_preds.csv')
+        filename2 = (
+            'predictions/bimcv_stage2_wSeg_FL_pairAug_attn_tst_preds.csv')
+        analyzer_stg1 = PredAnalyzer(filename1, True, None)
+        # analyzer_stg2 = PredAnalyzer(filename2, True, 'AUROC')
+        analyzer_stg2 = PredAnalyzer(filename2, True, None)
+        model_stage2 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
+                              num_classes=2, downsample_freq=1).cuda()
+        model_stage2 = nn.DataParallel(model_stage2)
+        flg2 = aux.loadModel('chkpt', model_stage2,
+                             'bimcv_stage2_wSeg_FL_pairAug_attn')
+        two_stage_inference_offline(analyzer_stg1, analyzer_stg2, model_stage2,
+                                    tst_data_handler)
     else:
         if args.runMode == 'val':
             data_handler = val_data_handler
