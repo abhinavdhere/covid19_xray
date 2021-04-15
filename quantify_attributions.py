@@ -5,10 +5,13 @@ Two experiments for quantitative testing of GradCams from my models -
 (for covid vs pneumonia, to quantify geographical diversity of opacity)
 """
 import os
+import csv
 import cv2
 import numpy as np
 import pandas as pd
 from shapely.geometry import Polygon
+
+import explain
 
 
 def load_BB(fName):
@@ -30,25 +33,158 @@ def compute_iou(bb_pred, bb_gt):
     return iou
 
 
-def compare_gradcam(path, fname):
-    attr = np.load(os.path.join(path, fname))
-    bb_gt_list = load_BB(fname)
-    _, contours, _ = cv2.findContours(attr, cv2.RETR_TREE,
-                                      cv2.CHAIN_APPROX_SIMPLE)
+def measure_attr_iou(attr, bb_gt_list, lung_mask):
+    attr_bin = attr.copy()
+    attr_bin[attr_bin != 0] = 1
+    contours, _ = cv2.findContours(attr_bin.astype('uint8'), cv2.RETR_TREE,
+                                   cv2.CHAIN_APPROX_SIMPLE)
 
+    contours = sorted(contours, key=lambda x: cv2.contourArea(x),
+                      reverse=True)[:3]
     attr_bb_list = []
     for cnt in contours:
-        bb = cv2.boundingRect(cnt)
-        # attr_bb_list(bb)
+        _, bb = LungSections.fit_lung_bb(cnt)
+        # bb = cv2.boundingRect(cnt)
+        attr_bb_list.append(bb)
 
     iou_list = []
-    for bb in attr_bb_list:
+    for bb_gt in bb_gt_list:
         _iou_list = []
-        for bb_gt in bb_gt_list:
+        cv2.drawContours(lung_mask, [bb_gt], 0, (0, 255, 0), 2)
+        for bb in attr_bb_list:
+            cv2.drawContours(lung_mask, [bb], 0, (255, 0, 0), 2)
             iou_val = compute_iou(bb, bb_gt)
             _iou_list.append(iou_val)
-        iou_list.append(max(_iou_list))
-    return np.mean(iou_list)
+        iou_list.append(np.max(_iou_list))
+    return iou_list, lung_mask
+
+
+def compare_attr_iou(attr_path, lung_mask_path):
+    with open('attr_iou_resnet_max_aggregate.csv', 'a') as f:
+        writer = csv.writer(f)
+        for fname in os.listdir(attr_path):
+            attr = np.load(os.path.join(attr_path, fname))
+            lung_mask = np.load(os.path.join(lung_mask_path,
+                                             fname.rsplit('.', 1)[0]
+                                             + '.dcm.npy'))
+            min_row, max_row = np.where(np.any(lung_mask, 0))[0][[0, -1]]
+            min_col, max_col = np.where(np.any(lung_mask, 1))[0][[0, -1]]
+            contours = explain.load_BB_with_lung_seg(fname, lung_mask, None,
+                                                     draw=False)
+            lung_mask = lung_mask[min_col:max_col, min_row:max_row]
+            lung_mask = cv2.resize(lung_mask, (352, 384), cv2.INTER_AREA)
+            bb_gt_list = []
+            for cnt in contours:
+                _, bb_gt = LungSections.fit_lung_bb(cnt)
+                bb_gt_list.append(bb_gt)
+            lung_mask_rgb = np.stack((lung_mask*255, lung_mask*255,
+                                      lung_mask*255), -1)
+            iou_list, overlayed_mask = measure_attr_iou(attr, bb_gt_list,
+                                                        lung_mask_rgb)
+            cv2.imwrite('attr_iou_plots/resnet_max/' +
+                        fname.rsplit('.', 1)[0]+'.png', overlayed_mask)
+            writer.writerow([fname]+[np.mean(iou_list)])
+
+
+def get_lung_section_mask(lung_mask, bb_section):
+    bb_mask = np.zeros((384, 352))
+    cv2.drawContours(bb_mask, [bb_section], 0, [255, 255, 255], -1)
+    bb_mask[bb_mask == 255] = 1
+    lung_section_mask = lung_mask*bb_mask
+    cnt, hiers = cv2.findContours(lung_section_mask.astype('uint8'),
+                                  cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[-2:]
+    cnt = sorted(cnt, key=lambda x: cv2.contourArea(x),
+                 reverse=True)[0]
+    area = cv2.contourArea(cnt)
+    return lung_section_mask, area
+
+
+def measure_attr_areas(attr, bb_gt_list, lung_mask):
+    contours, _ = cv2.findContours(attr.astype('uint8'), cv2.RETR_TREE,
+                                   cv2.CHAIN_APPROX_SIMPLE)
+
+    contours = sorted(contours, key=lambda x: cv2.contourArea(x),
+                      reverse=True)  # [:3]
+    total_cnt_area = sum([cv2.contourArea(cnt) for cnt in contours])
+    area_list = []
+    # num = 0
+    for bb_section in bb_gt_list:
+        _area_list = []
+        lung_section_mask, section_area \
+            = get_lung_section_mask(lung_mask.copy(), bb_section)
+        # cv2.imwrite('temp_lung_'+str(num)+'.png', lung_section_mask*255)
+        # num += 1
+        for cnt in contours:
+            cnt_mask = np.zeros((384, 352))
+            cv2.drawContours(cnt_mask, [cnt], 0, [255, 255, 255], -1)
+            cnt_mask[cnt_mask == 255] = 1
+            overlap = cnt_mask*lung_section_mask
+            overlap_cnt, _ = cv2.findContours(
+                overlap.astype('uint8'), cv2.RETR_TREE,
+                cv2.CHAIN_APPROX_SIMPLE)
+            if len(overlap_cnt) == 0:
+                overlap_area = 0
+            else:
+                overlap_area = cv2.contourArea(overlap_cnt[0])
+            # area_ratio = overlap_area / section_area
+            area_ratio = overlap_area / total_cnt_area
+            _area_list.append(area_ratio*100)
+        area_list.append(np.sum(_area_list))
+    return area_list
+
+
+def measure_geo_dist(path, lung_mask_path, class_name, measure):
+    path = os.path.join(path, class_name)
+    with open('geo_dist_attr_cntr_area_'+class_name+'.csv', 'a') as f:
+        writer = csv.writer(f)
+        for item in os.listdir(path):
+            if (os.path.isfile(os.path.join(path, item))):
+                attr = np.load(os.path.join(path, item))
+                if class_name == 'covid':
+                    lung_mask_name = (
+                        '_'.join(item.split('_')[6:]).rsplit(
+                            '.', 1)[0]+'.png.npy')
+                elif class_name == 'pneumonia':
+                    lung_mask_name = (
+                        '_'.join(item.split('_')[6:]).rsplit(
+                            '.', 1)[0]+'.jpg.npy')
+                lung_mask = np.load(os.path.join(lung_mask_path,
+                                                 lung_mask_name))
+                min_row, max_row = np.where(np.any(lung_mask, 0))[0][[0, -1]]
+                min_col, max_col = np.where(np.any(lung_mask, 1))[0][[0, -1]]
+                lung_mask = lung_mask[min_col:max_col, min_row:max_row]
+                lung_mask = cv2.resize(lung_mask, (352, 384), cv2.INTER_AREA)
+                try:
+                    lung_sections = LungSections(lung_mask)
+                except IndexError:
+                    print(item)
+                    continue
+                if measure == 'iou':
+                    lung_iou_list = []
+                    lung_mask_rgb = np.stack(
+                        (lung_mask*255, lung_mask*255, lung_mask*255), -1)
+                    for i in range(2):
+                        sections = lung_sections.divide_sections(i)
+                        iou_list, plot = measure_attr_iou(attr, sections,
+                                                          lung_mask_rgb)
+                        lung_iou_list.append(iou_list)
+                        cv2.imwrite(
+                            'geo_dist_attr_plots/'+item.rsplit('.', 1)[0]
+                            + '.png', plot
+                        )
+                    writer.writerow(lung_iou_list[0]+lung_iou_list[1])
+                elif measure == 'area':
+                    lung_area_list = []
+                    for i in range(2):
+                        sections = lung_sections.divide_sections(i)
+                        try:
+                            area_list = measure_attr_areas(attr, sections,
+                                                           lung_mask)
+                            lung_area_list.append(area_list)
+                        except ZeroDivisionError:
+                            print(item)
+                            lung_area_list.append([0, 0, 0])
+                    writer.writerow(lung_area_list[0]+lung_area_list[1])
 
 
 class LungSections:
@@ -62,10 +198,17 @@ class LungSections:
                                        cv2.CHAIN_APPROX_SIMPLE)[-2:]
         contours = sorted(contours, key=lambda x: cv2.contourArea(x),
                           reverse=True)
+        # import pdb
+        # pdb.set_trace()
         lungs = contours[:2]
         # Fit rotated boxes for both lungs
-        self.lung_box1 = self.fit_lung_bb(lungs[0])
-        self.lung_box2 = self.fit_lung_bb(lungs[1])
+        rect1, lung_box1 = self.fit_lung_bb(lungs[0])
+        rect2, lung_box2 = self.fit_lung_bb(lungs[1])
+        # Sorting to get left lung first
+        lungs, rects = zip(*sorted(zip([lung_box1, lung_box2], [rect1, rect2]),
+                           key=lambda x: x[1][0][0], reverse=False))
+        self.lung_box1 = lungs[0]
+        self.lung_box2 = lungs[1]
 
     @staticmethod
     def fit_lung_bb(cnt):
@@ -73,7 +216,7 @@ class LungSections:
         rect = cv2.minAreaRect(cnt)
         box = cv2.boxPoints(rect)
         box = np.int0(box)
-        return box
+        return rect, box
 
     @staticmethod
     def find_first_point_position(box):
@@ -100,9 +243,13 @@ class LungSections:
         mid_x = int(np.mean([start_pt[0], end_pt[0]]))
         mid_y = int(np.mean([start_pt[1], end_pt[1]]))
         left_quarter_x = int(np.mean([start_pt[0], mid_x]))
+        # left_quarter_x = int(np.mean([start_pt[0], left_quarter_x]))
         left_quarter_y = int(np.mean([start_pt[1], mid_y]))
+        # left_quarter_y = int(np.mean([start_pt[1], left_quarter_y]))
         right_quarter_x = int(np.mean([mid_x, end_pt[0]]))
+        # right_quarter_x = int(np.mean([start_pt[0], right_quarter_x]))
         right_quarter_y = int(np.mean([mid_y, end_pt[1]]))
+        # right_quarter_y = int(np.mean([start_pt[1], right_quarter_y]))
         return ((left_quarter_x, left_quarter_y),
                 (right_quarter_x, right_quarter_y))
 
@@ -141,17 +288,25 @@ class LungSections:
 
 
 if __name__ == '__main__':
-    fname = 'bimcv_2_sub-S03047_ses-E07985_run-1_bp-chest_vp-ap_cr.png.npy'
-    lung_mask = np.load(fname)
-    lung_sections = LungSections(lung_mask)
-    sections = lung_sections.divide_sections(1)
-    lung_mask *= 255
-    lung_mask = np.stack((lung_mask, lung_mask, lung_mask), -1)
-    cv2.drawContours(lung_mask, [lung_sections.lung_box2], 0, (255, 0, 0), 2)
-    cv2.drawContours(lung_mask, list(sections), 0, (0, 0, 255), 2)
-    cv2.drawContours(lung_mask, list(sections), 2, (0, 255, 0), 2)
-    sections = lung_sections.divide_sections(0)
-    cv2.drawContours(lung_mask, [lung_sections.lung_box1], 0, (255, 0, 0), 2)
-    cv2.drawContours(lung_mask, list(sections), 0, (0, 0, 255), 2)
-    cv2.drawContours(lung_mask, list(sections), 2, (0, 255, 0), 2)
-    cv2.imwrite('lung_mask_sections_test1.png', lung_mask)
+    attr_path = ('/home/abhinav/covid19_xray/gradcam_misc/bimcv_stage2/'
+                 'guided_thresholded/raw_thresh80')
+    lung_mask_path = '/home/abhinav/CXR_datasets/bimcv_pos/bimcv_iitj_lungSeg/'
+    # attr_path = 'gradcam_misc/rsna_march_21/guided_thresholded/raw_thresh80/resnet'
+    # lung_mask_path = '/home/abhinav/CXR_datasets/RSNA_dataset/lung_seg_raw'
+    # compare_attr_iou(attr_path, lung_mask_path)
+    measure_geo_dist(attr_path, lung_mask_path, 'covid', 'area')
+    # fname = 'bimcv_2_sub-S03047_ses-E07985_run-1_bp-chest_vp-ap_cr.png.npy'
+    # fname = 'bimcv_2_sub-S03072_ses-E06166_run-1_bp-chest_vp-ap_cr.png.npy'
+    # lung_mask = np.load(lung_mask_path+fname)
+    # lung_sections = LungSections(lung_mask)
+    # sections = lung_sections.divide_sections(1)
+    # lung_mask *= 255
+    # lung_mask = np.stack((lung_mask, lung_mask, lung_mask), -1)
+    # cv2.drawContours(lung_mask, [lung_sections.lung_box2], 0, (255, 0, 0), 2)
+    # cv2.drawContours(lung_mask, list(sections), 0, (0, 0, 255), 2)
+    # cv2.drawContours(lung_mask, list(sections), 1, (0, 0, 0), cv2.FILLED)
+    # sections = lung_sections.divide_sections(0)
+    # cv2.drawContours(lung_mask, [lung_sections.lung_box1], 0, (255, 0, 0), 2)
+    # cv2.drawContours(lung_mask, list(sections), 0, (0, 0, 255), 2)
+    # cv2.drawContours(lung_mask, list(sections), 1, (0, 0, 0), cv2.FILLED)
+    # cv2.imwrite('lung_mask_sections_test3.png', lung_mask)
