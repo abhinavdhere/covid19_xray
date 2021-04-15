@@ -44,6 +44,7 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
             if process == 'trn':
                 pred, aux_pred, conicity = model.forward(X)
                 # pred, aux_pred = model.forward(X)
+                # pred = model.forward(X)
                 aux_pred = F.softmax(aux_pred, 1)
             else:
                 pred, conicity = model.forward(X)
@@ -55,6 +56,7 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
                 loss = (loss_wts[0]*main_focal_loss +
                         loss_wts[1]*main_aux_loss)
                 loss_list['aux_focal_loss'] += main_aux_loss
+                # loss = (loss_wts[0]*main_focal_loss)
             else:
                 loss = loss_wts[0]*main_focal_loss
             loss_list['main_focal_loss'] += main_focal_loss
@@ -101,6 +103,7 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp,
     # loss_list = {'main_bce': 0, 'aux_bce': 0, 'conicity': 0}
     loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0, 'conicity': 0}
     # loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0}
+    # loss_list = {'main_focal_loss': 0}
     pred_list = []
     label_list = []
     softpred_list = []
@@ -318,7 +321,7 @@ def main():
     # model = RobustDenseNet(pretrained=True, num_classes=2).cuda()
 # print(summary(model, torch.zeros((1, 1, 512, 512)).cuda(), show_input=True))
     # model = resnet18(num_classes=2).cuda()
-    model = nn.DataParallel(model)
+    # model = nn.DataParallel(model)
     if args.loadModelFlag:
         print(args.saveName)
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)

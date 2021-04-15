@@ -171,7 +171,7 @@ def main():
     # val_data_handler = SegDataLoader('val', args.foldNum, args.batchSize,
     #                                  'none', in_channels=0)
     tst_data_handler = SegDataLoader('tst', args.foldNum, args.batchSize,
-                                     'none', in_channels=0)
+                                     None, in_channels=0)
     # model = UNet(n_classes=2).cuda()
     # encoder = resnext50_32x4d(pretrained=True)
     # encoder = encoder[:-2]

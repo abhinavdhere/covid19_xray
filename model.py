@@ -112,6 +112,7 @@ class ResNet(nn.Module):
                 downsample = True
         self.main_arch = nn.Sequential(*self.layers)
         self.attn_conv = nn.Conv2d(960, 512, kernel_size=3, stride=4)
+        # self.attn_conv = nn.Conv2d(1920, 512, kernel_size=3, stride=4)
         self.semifinal = nn.Conv2d(512, 512, kernel_size=3, stride=1,
                                    padding=1)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
