@@ -4,11 +4,13 @@ import os
 import numpy as np
 import torch
 import cv2
-# import pydicom as dcm
+import pydicom as dcm
+import kornia
 
 # import aux
 import config
 from augment_tools import augment, get_combinations
+import quantify_attributions as qa
 
 
 class DataLoader:
@@ -61,21 +63,23 @@ class DataLoader:
         Returns:
             file_list (List[str]): original list of file names from directory
         """
-        # allFileList = os.listdir(os.path.join(path, data_type))
+        # allFileList = os.listdir()
         if self.data_type == 'val':
             # flist_name = (config.PATH_FLIST + '/old_split_val.txt')
             # flist_name = (config.PATH_FLIST + '/5fold_split_val.txt')
-            flist_name = (config.PATH_FLIST + '/val.txt')
+            flist_name = (config.PATH_FLIST + '/val_list.txt')
         else:
-            # flist_name = (config.PATH_FLIST + '/old_split_' + self.data_type + '.txt')
-            flist_name = (config.PATH_FLIST + '/5fold_split_' +
-                          str(self.fold_num) + '_' + self.data_type + '.txt')
+            # flist_name = (config.PATH_FLIST + '/old_split_'
+            # + self.data_type + '.txt')
+            # flist_name = (config.PATH_FLIST + '/5fold_split_' +
+            #               str(self.fold_num) + '_' + self.data_type + '.txt')
+            flist_name = os.path.join(config.PATH_FLIST, self.data_type+'_list.txt')
         all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
         file_list = []
         for file_name in all_filelist:
             if file_name.split('_')[0] in config.DATASET_LIST:
-                lbl = file_name.split('_')[1]
-                if config.TASK == 'pneumonia_vs_covid' and lbl == '0':
+                self.lbl = file_name.split('_')[1]
+                if config.TASK == 'pneumonia_vs_covid' and self.lbl == '0':
                     continue
                 else:
                     file_list.append(file_name)
@@ -184,15 +188,15 @@ class DataLoader:
             img (torch.Tensor): CUDA tensor of size (in_channels, size0, size1)
                 with required preprocessing.
         """
-        img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
-        # img = dcm.dcmread(full_name)
-        # img = img.pixel_array
+        # img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
+        img = dcm.dcmread(full_name)
+        img = img.pixel_array
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         img = (img - np.mean(img)) / np.std(img)
         if segment_lung:
             img = self.apply_seg_mask(img, full_name.split('/')[-1],
-                                      crop=True)
+                                      crop=True, occlusion=False)
         if self.in_channels == 3:
             if img.dtype == 'float64':
                 img = img.astype('float32')
@@ -205,7 +209,7 @@ class DataLoader:
         img = augment(img, aug_name)
         return img
 
-    def apply_seg_mask(self, img, file_name, crop):
+    def apply_seg_mask(self, img, file_name, crop, occlusion=False):
         """ Load lung segmentation mask from disk and mask the image with it.
 
         Args:
@@ -217,21 +221,77 @@ class DataLoader:
         Returns:
             img (torch.Tensor): CUDA Image tensor with lungs region only
         """
-        # lung_mask = cv2.imread(config.PATH.rsplit('/', 1)[0]
-        #                        + '/lung_seg_filtered/'+file_name,
-        #                        cv2.IMREAD_GRAYSCALE)
-        lung_mask = np.load(config.PATH.rsplit('/', 1)[0]
-                            + '/lung_seg_raw/'+file_name+'.npy')
-        # lung_mask[lung_mask == 255] = 1
-        # lung_mask[lung_mask < 10] = 0
-        # lung_mask[lung_mask > 10] = 1
-        img = img*lung_mask
+        self.lung_mask = np.load(config.PATH.rsplit('/', 1)[0]
+                                 # + '/bimcv_iitj_lungSeg/'+file_name+'.npy')
+        # lung_mask = np.load(config.PATH.rsplit('/', 1)[0]
+                                 + '/lung_seg_raw/'+file_name+'.npy')
         if crop:
-            min_row, max_row = np.where(np.any(lung_mask, 0))[0][[0, -1]]
-            min_col, max_col = np.where(np.any(lung_mask, 1))[0][[0, -1]]
+            min_row, max_row = np.where(np.any(self.lung_mask, 0))[0][[0, -1]]
+            min_col, max_col = np.where(np.any(self.lung_mask, 1))[0][[0, -1]]
+            img = img*self.lung_mask
             img = img[min_col:max_col, min_row:max_row]
+            self.lung_mask = self.lung_mask[min_col:max_col, min_row:max_row]
             img = cv2.resize(img, (352, 384), cv2.INTER_AREA)
+            self.lung_mask = cv2.resize(self.lung_mask, (352, 384),
+                                        cv2.INTER_AREA)
+        try:
+            if occlusion:
+                lung_mask_central = self.apply_occlusion_mask(
+                    self.lung_mask.copy(), 'central')
+                lung_mask_peripheral = self.apply_occlusion_mask(
+                    self.lung_mask.copy(), 'peripheral')
+                if not self.lbl:
+                    img = img*lung_mask_central[:, :, 0]
+                    # img_central = torch.Tensor(
+                    #     img_central).unsqueeze(0).unsqueeze(0)
+                    # img_central = kornia.filters.gaussian_blur2d(
+                    #     img_central, (15, 15), (7, 7)).numpy()[0, 0, :, :]
+                    # img_central = cv2.GaussianBlur(
+                    #     img*lung_mask_central[:, :, 0], (15, 15), 7, 7)
+                    # img_peripheral = cv2.GaussianBlur(
+                    #     img*lung_mask_peripheral[:, :, 0], (15, 15), 7, 7)
+                    # img_peripheral = img*lung_mask_peripheral[:, :, 0]
+                    # img_central = img*lung_mask_central[:, :, 0]
+                else:
+                    img = img*lung_mask_peripheral[:, :, 0]
+                    # img_peripheral = torch.Tensor(
+                    #     img_peripheral).unsqueeze(0).unsqueeze(0)
+                    # img_peripheral = kornia.filters.gaussian_blur2d(
+                    #     img_peripheral, (15, 15), (7, 7)).numpy()[0, 0, :, :]
+                    # img_central = cv2.GaussianBlur(
+                    #     img*lung_mask_central[:, :, 0], (15, 15), 7, 7)
+                    # img_peripheral = cv2.GaussianBlur(
+                    #     img*lung_mask_peripheral[:, :, 0], (15, 15), 7, 7)
+                    # img_peripheral = img*lung_mask_peripheral[:, :, 0]
+                    # img_central = img*lung_mask_central[:, :, 0]
+                # img = img_central + img_peripheral
+                # import pdb
+                # pdb.set_trace()
+            # else:
+            #     img = img*self.lung_mask
+            # img = img*self.lung_mask[:, :, 0]
+        except IndexError:
+            pass
+            # print(file_name)
         return img
+
+    def apply_occlusion_mask(self, lung_mask, section_type):
+        lung_sections_obj = qa.LungSections(lung_mask)
+        lung_mask *= 255
+        lung_mask = np.stack((lung_mask, lung_mask, lung_mask), -1)
+        sections_lung0 = lung_sections_obj.divide_sections(0)
+        sections_lung1 = lung_sections_obj.divide_sections(1)
+        if section_type == 'peripheral':
+            for box in [sections_lung0, sections_lung1]:
+                cv2.drawContours(lung_mask, list(box), 1,
+                                 (0, 0, 0), cv2.FILLED)
+        elif section_type == 'central':
+            for box in [sections_lung0, sections_lung1]:
+                for idx in [0, 2]:
+                    cv2.drawContours(lung_mask, list(box), idx,
+                                     (0, 0, 0), cv2.FILLED)
+        lung_mask[lung_mask == 255] = 1
+        return lung_mask
 
     def dataloader(self):
         """ Generator for yielding batches of data & corresponding labels
@@ -255,29 +315,29 @@ class DataLoader:
                 file_name = '_'.join(file_name_full.split('_')[:-1])
                 aug_name = file_name_full.split('_')[-1]
                 nameParts = file_name.split('_')
-                lbl = int(nameParts[1])
+                self.lbl = int(nameParts[1])
                 if config.TASK == 'pneumonia_vs_covid':
-                    lbl -= 1
-                elif config.TASK == 'normal_vs_pneumonia' and lbl > 1:
-                    lbl = 1
+                    self.lbl -= 1
+                elif config.TASK == 'normal_vs_pneumonia' and self.lbl > 1:
+                    self.lbl = 1
                 name_w_path = os.path.join(config.PATH, file_name)
-                try:
-                    img = self.preprocess_data(name_w_path, aug_name,
-                                               segment_lung=True)
-                    # Diagnostic option - to save images the way they are
-                    # just before going into the network
-                    # np.save('test_data_to_check/'
-                    #         + file_name + '.npy', img.detach().cpu().numpy())
-                except cv2.error:
-                    import pdb
-                    pdb.set_trace()
+                # try:
+                img = self.preprocess_data(name_w_path, aug_name,
+                                           segment_lung=False)
+                # Diagnostic option - to save images the way they are
+                # just before going into the network
+                # np.save('test_data_to_check/'
+                #         + file_name + '.npy', img.detach().cpu().numpy())
+                # except cv2.error:
+                #     import pdb
+                #     pdb.set_trace()
                 # pdb.set_trace()
                 if torch.std(img) == 0 or not torch.isfinite(img).all():
                     raise ValueError('Image intensity inappropriate'
                                      '(std is 0 or image has infinity')
-                lbl = torch.Tensor(np.array([lbl])).long()
+                self.lbl = torch.Tensor(np.array([self.lbl])).long()
                 data_arr.append(img)
-                label_arr.append(lbl)
+                label_arr.append(self.lbl)
                 file_name_arr.append(file_name_full)
                 count += 1
                 last_batch_flag = ((self.num_batches-batch_count) == 2 and
@@ -323,12 +383,19 @@ class SegDataLoader(DataLoader):
             img (torch.Tensor): CUDA tensor of size (in_channels, size0, size1)
                 with required preprocessing.
         """
-        img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
+        # img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
+        img = dcm.dcmread(full_name)
+        img = img.pixel_array
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         if file_type == 'data':
             # img = aux.BCET(0, 255, 86, img)  # BCET contrast enhancement
-            img = (img - np.mean(img)) / np.std(img)
+            try:
+                if np.mean(img) > 0.5 or np.mean(img) < -0.5:
+                    img = (img - np.mean(img)) / np.std(img)
+            except ValueError:
+                import pdb
+                pdb.set_trace()
         if self.in_channels == 3 and file_type == 'data':
             if img.dtype == 'float64':
                 img = img.astype('float32')
@@ -375,16 +442,16 @@ class SegDataLoader(DataLoader):
                 # lbl_name_w_path = os.path.join(config.PATH, 'labels',
                 #                                file_name)
                 img = self.preprocess_data(name_w_path, 'data', aug_name,
-                                           segment_lung=False)
-                lbl = torch.ones(img.shape)
-                # lbl = self.preprocess_data(lbl_name_w_path, 'label', aug_name,
-                #                            segment_lung=False)
+                                           segment_lung=True)
+                self.lbl = torch.ones(img.shape)
+                # lbl = self.preprocess_data(self.lbl_name_w_path, 'label',
+                # aug_name, segment_lung=False)
                 if torch.std(img) == 0 or not torch.isfinite(img).all():
                     raise ValueError('Image intensity inappropriate'
                                      '(std is 0 or image has infinity')
-                lbl = lbl.cpu().long()
+                self.lbl = self.lbl.cpu().long()
                 data_arr.append(img)
-                label_arr.append(lbl)
+                label_arr.append(self.lbl)
                 file_name_arr.append(file_name_full)
                 count += 1
                 last_batch_flag = ((self.num_batches-batch_count) == 2 and
