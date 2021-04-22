@@ -55,24 +55,45 @@ def measure_attr_iou(attr, bb_gt_list, lung_mask):
             cv2.drawContours(lung_mask, [bb], 0, (255, 0, 0), 2)
             iou_val = compute_iou(bb, bb_gt)
             _iou_list.append(iou_val)
-        iou_list.append(np.max(_iou_list))
+        if len(_iou_list) == 0:
+            iou_list.append(0)
+        else:
+            iou_list.append(np.max(_iou_list))
     return iou_list, lung_mask
 
 
+def measure_attr_areas_bb(attr, bb_gt_list, lung_mask):
+    total_attr_area = np.sum(attr > 0)
+    area_list = []
+    for bb in bb_gt_list:
+        bb_mask, section_area \
+            = get_lung_section_mask(lung_mask.copy(), bb)
+        overlap = attr*bb_mask
+        overlap_area = np.sum(overlap)
+        area_ratio = overlap_area / total_attr_area
+        area_list.append(area_ratio*100)
+    return area_list
+
+
 def compare_attr_iou(attr_path, lung_mask_path):
-    with open('attr_iou_resnet_max_aggregate.csv', 'a') as f:
+    with open('attr_area_resnet_rerun_wLungSeg.csv', 'a') as f:
         writer = csv.writer(f)
         for fname in os.listdir(attr_path):
             attr = np.load(os.path.join(attr_path, fname))
+            # thresh = 0.1*np.max(attr)
+            # attr[attr < thresh] = 0
+            # attr[attr > thresh] = 1
+
             lung_mask = np.load(os.path.join(lung_mask_path,
                                              fname.rsplit('.', 1)[0]
                                              + '.dcm.npy'))
-            min_row, max_row = np.where(np.any(lung_mask, 0))[0][[0, -1]]
-            min_col, max_col = np.where(np.any(lung_mask, 1))[0][[0, -1]]
             contours = explain.load_BB_with_lung_seg(fname, lung_mask, None,
                                                      draw=False)
+            min_row, max_row = np.where(np.any(lung_mask, 0))[0][[0, -1]]
+            min_col, max_col = np.where(np.any(lung_mask, 1))[0][[0, -1]]
             lung_mask = lung_mask[min_col:max_col, min_row:max_row]
             lung_mask = cv2.resize(lung_mask, (352, 384), cv2.INTER_AREA)
+            attr = attr*lung_mask
             bb_gt_list = []
             for cnt in contours:
                 _, bb_gt = LungSections.fit_lung_bb(cnt)
@@ -81,13 +102,16 @@ def compare_attr_iou(attr_path, lung_mask_path):
                                       lung_mask*255), -1)
             iou_list, overlayed_mask = measure_attr_iou(attr, bb_gt_list,
                                                         lung_mask_rgb)
-            cv2.imwrite('attr_iou_plots/resnet_max/' +
+            # area_list = measure_attr_areas_bb(attr, bb_gt_list, lung_mask)
+            cv2.imwrite('attr_iou_plots/resnet_rerun' +
                         fname.rsplit('.', 1)[0]+'.png', overlayed_mask)
             writer.writerow([fname]+[np.mean(iou_list)])
+            # writer.writerow([fname]+[np.mean(area_list)])
 
 
 def get_lung_section_mask(lung_mask, bb_section):
     bb_mask = np.zeros((384, 352))
+    # bb_mask = np.zeros((512, 512))
     cv2.drawContours(bb_mask, [bb_section], 0, [255, 255, 255], -1)
     bb_mask[bb_mask == 255] = 1
     lung_section_mask = lung_mask*bb_mask
@@ -115,7 +139,8 @@ def measure_attr_areas(attr, bb_gt_list, lung_mask):
         # cv2.imwrite('temp_lung_'+str(num)+'.png', lung_section_mask*255)
         # num += 1
         for cnt in contours:
-            cnt_mask = np.zeros((384, 352))
+            # cnt_mask = np.zeros((384, 352))
+            cnt_mask = np.zeros((512, 512))
             cv2.drawContours(cnt_mask, [cnt], 0, [255, 255, 255], -1)
             cnt_mask[cnt_mask == 255] = 1
             overlap = cnt_mask*lung_section_mask
@@ -135,11 +160,14 @@ def measure_attr_areas(attr, bb_gt_list, lung_mask):
 
 def measure_geo_dist(path, lung_mask_path, class_name, measure):
     path = os.path.join(path, class_name)
-    with open('geo_dist_attr_cntr_area_'+class_name+'.csv', 'a') as f:
+    with open('geo_dist_IG_attr_cntr_area_'+class_name+'1.csv', 'a') as f:
         writer = csv.writer(f)
         for item in os.listdir(path):
             if (os.path.isfile(os.path.join(path, item))):
                 attr = np.load(os.path.join(path, item))
+                thresh = 0.2*np.max(attr)
+                attr[attr < thresh] = 0
+                attr[attr > thresh] = 1
                 if class_name == 'covid':
                     lung_mask_name = (
                         '_'.join(item.split('_')[6:]).rsplit(
@@ -178,8 +206,10 @@ def measure_geo_dist(path, lung_mask_path, class_name, measure):
                     for i in range(2):
                         sections = lung_sections.divide_sections(i)
                         try:
-                            area_list = measure_attr_areas(attr, sections,
-                                                           lung_mask)
+                            # area_list = measure_attr_areas(attr, sections,
+                            #                                lung_mask)
+                            area_list = measure_attr_areas_bb(attr, sections,
+                                                              lung_mask)
                             lung_area_list.append(area_list)
                         except ZeroDivisionError:
                             print(item)
@@ -288,13 +318,16 @@ class LungSections:
 
 
 if __name__ == '__main__':
-    attr_path = ('/home/abhinav/covid19_xray/gradcam_misc/bimcv_stage2/'
-                 'guided_thresholded/raw_thresh80')
-    lung_mask_path = '/home/abhinav/CXR_datasets/bimcv_pos/bimcv_iitj_lungSeg/'
-    # attr_path = 'gradcam_misc/rsna_march_21/guided_thresholded/raw_thresh80/resnet'
-    # lung_mask_path = '/home/abhinav/CXR_datasets/RSNA_dataset/lung_seg_raw'
-    # compare_attr_iou(attr_path, lung_mask_path)
-    measure_geo_dist(attr_path, lung_mask_path, 'covid', 'area')
+    # attr_path = ('/home/abhinav/covid19_xray/gradcam_misc/bimcv_stage2/'
+    #              'guided_thresholded/raw_IG_unthresh')
+    # lung_mask_path = '/home/abhinav/CXR_datasets/bimcv_pos/bimcv_iitj_lungSeg/'
+    # attr_path = ('gradcam_misc/rsna_march_21/guided_thresholded/'
+    #              'gcpp_raw_thresh80/msarl')
+    attr_path = ('gradcam_misc/rsna_march_21/guided_thresholded/'
+                 'raw_thresh80/resnet1')
+    lung_mask_path = '/home/abhinav/CXR_datasets/RSNA_dataset/lung_seg_raw'
+    compare_attr_iou(attr_path, lung_mask_path)
+    # measure_geo_dist(attr_path, lung_mask_path, 'pneumonia', 'area')
     # fname = 'bimcv_2_sub-S03047_ses-E07985_run-1_bp-chest_vp-ap_cr.png.npy'
     # fname = 'bimcv_2_sub-S03072_ses-E06166_run-1_bp-chest_vp-ap_cr.png.npy'
     # lung_mask = np.load(lung_mask_path+fname)
