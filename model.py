@@ -78,7 +78,7 @@ class AuxClassifier(nn.Module):
         return out
 
 
-class ResNet(nn.Module):
+class MARL(nn.Module):
     def __init__(self, in_channels, num_blocks, num_layers, num_classes=2,
                  num_feats=64, downsample_freq=1):
         '''
@@ -90,7 +90,7 @@ class ResNet(nn.Module):
             num_feats (int): number of feature channels in first layer
             downsample_freq (int): number of blocks after which to downsample.
         '''
-        super(ResNet, self).__init__()
+        super(MARL, self).__init__()
         self.downsample_freq = downsample_freq
         self.conv1 = nn.Conv2d(in_channels, num_feats, kernel_size=7,
                                stride=2, padding=3, bias=False)
@@ -167,10 +167,30 @@ class ResNet(nn.Module):
         atm = F.cosine_similarity(attn_map, mean_vec, 2)
         conicity = torch.mean(atm, 1)
         return conicity
-# # -- Graveyard
-# attn_map, _ = torch.max(attn_map, 1)
-# attn_map_list.append(attn_map)
-# # x, attn_map = self.main_arch(x)
-#         for i in range(len(1, stacked_attn_map)):
-#             stacked_attn_map = torch.cat((stacked_attn_map,
-#                                           attn_map_list[i]), 1)
+
+
+class ARL(MARL):
+    def __init__(self, in_channels, num_blocks, num_layers, num_classes=2,
+                 num_feats=64, downsample_freq=1):
+        super(ARL, self).__init__(
+            in_channels, num_blocks, num_layers, num_classes, num_feats=64,
+            downsample_freq=1
+        )
+
+    def forward(self, x):
+        conicity_sum = 0
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.maxpool(x)
+        for num, block in enumerate(self.main_arch, 1):
+            x, attn_map = block(x)
+            if self.training and num == (self.num_blocks // 2):
+                aux = self.aux_classifier(x)
+            conicity = self.get_conicity(attn_map)
+            conicity_sum += conicity
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        out = self.final(x)
+        if self.training:
+            return out, aux, conicity_sum
+        else:
+            return out, conicity_sum
