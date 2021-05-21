@@ -64,19 +64,20 @@ def measure_attr_iou(attr, bb_gt_list, lung_mask):
 
 def measure_attr_areas_bb(attr, bb_gt_list, lung_mask):
     total_attr_area = np.sum(attr > 0)
+    epsilon = 1e-15
     area_list = []
     for bb in bb_gt_list:
         bb_mask, section_area \
             = get_lung_section_mask(lung_mask.copy(), bb)
         overlap = attr*bb_mask
         overlap_area = np.sum(overlap)
-        area_ratio = overlap_area / total_attr_area
+        area_ratio = overlap_area / (total_attr_area + epsilon)
         area_list.append(area_ratio*100)
     return area_list
 
 
 def compare_attr_iou(attr_path, lung_mask_path):
-    with open('attr_area_resnet_rerun_wLungSeg.csv', 'a') as f:
+    with open('attr_area_marl_individual_BB_wLungSeg.csv', 'a') as f:
         writer = csv.writer(f)
         for fname in os.listdir(attr_path):
             attr = np.load(os.path.join(attr_path, fname))
@@ -103,9 +104,11 @@ def compare_attr_iou(attr_path, lung_mask_path):
             iou_list, overlayed_mask = measure_attr_iou(attr, bb_gt_list,
                                                         lung_mask_rgb)
             # area_list = measure_attr_areas_bb(attr, bb_gt_list, lung_mask)
-            cv2.imwrite('attr_iou_plots/resnet_rerun' +
-                        fname.rsplit('.', 1)[0]+'.png', overlayed_mask)
-            writer.writerow([fname]+[np.mean(iou_list)])
+            # cv2.imwrite('attr_iou_plots/resnet_rerun' +
+            #             fname.rsplit('.', 1)[0]+'.png', overlayed_mask)
+            for val in iou_list:
+                writer.writerow([fname, val])
+            # writer.writerow([fname]+[np.mean(iou_list)])
             # writer.writerow([fname]+[np.mean(area_list)])
 
 
@@ -160,12 +163,12 @@ def measure_attr_areas(attr, bb_gt_list, lung_mask):
 
 def measure_geo_dist(path, lung_mask_path, class_name, measure):
     path = os.path.join(path, class_name)
-    with open('geo_dist_IG_attr_cntr_area_'+class_name+'1.csv', 'a') as f:
+    with open('geo_dist_attr_cntr_area_total_'+class_name+'_rerun.csv', 'a') as f:
         writer = csv.writer(f)
         for item in os.listdir(path):
             if (os.path.isfile(os.path.join(path, item))):
                 attr = np.load(os.path.join(path, item))
-                thresh = 0.2*np.max(attr)
+                thresh = 0.8*np.max(attr)
                 attr[attr < thresh] = 0
                 attr[attr > thresh] = 1
                 if class_name == 'covid':
@@ -205,16 +208,32 @@ def measure_geo_dist(path, lung_mask_path, class_name, measure):
                     lung_area_list = []
                     for i in range(2):
                         sections = lung_sections.divide_sections(i)
+                        # single_lung_mask = np.zeros((384, 352))
+                        # if i == 0:
+                        #     lung_box = lung_sections.lung_box1
+                        # else:
+                        #     lung_box = lung_sections.lung_box2
+                        # single_lung_mask = cv2.drawContours(
+                        #     single_lung_mask, [lung_box], 0, 255, -2)
+                        # single_lung_mask[single_lung_mask == 255] = 1
+                        # attr_lung = attr*single_lung_mask*lung_mask
+                        attr_lung = attr*lung_mask
                         try:
                             # area_list = measure_attr_areas(attr, sections,
                             #                                lung_mask)
-                            area_list = measure_attr_areas_bb(attr, sections,
-                                                              lung_mask)
+                            area_list = measure_attr_areas_bb(
+                                attr_lung, sections, lung_mask)
                             lung_area_list.append(area_list)
                         except ZeroDivisionError:
                             print(item)
                             lung_area_list.append([0, 0, 0])
-                    writer.writerow(lung_area_list[0]+lung_area_list[1])
+                    record = [
+                        lung_area_list[0][0] + lung_area_list[1][0],
+                        lung_area_list[0][1] + lung_area_list[1][1],
+                        lung_area_list[0][2] + lung_area_list[1][2]
+                    ]
+                    writer.writerow(record)
+                    # writer.writerow(lung_area_list[0]+lung_area_list[1])
 
 
 class LungSections:
@@ -268,27 +287,32 @@ class LungSections:
             return "right"
 
     @staticmethod
-    def divide_line(start_pt, end_pt):
+    def divide_line(start_pt, end_pt, a, b):
         """ Divide a line into 3 parts given start and end point """
-        mid_x = int(np.mean([start_pt[0], end_pt[0]]))
-        mid_y = int(np.mean([start_pt[1], end_pt[1]]))
-        left_quarter_x = int(np.mean([start_pt[0], mid_x]))
-        # left_quarter_x = int(np.mean([start_pt[0], left_quarter_x]))
-        left_quarter_y = int(np.mean([start_pt[1], mid_y]))
-        # left_quarter_y = int(np.mean([start_pt[1], left_quarter_y]))
-        right_quarter_x = int(np.mean([mid_x, end_pt[0]]))
-        # right_quarter_x = int(np.mean([start_pt[0], right_quarter_x]))
-        right_quarter_y = int(np.mean([mid_y, end_pt[1]]))
-        # right_quarter_y = int(np.mean([start_pt[1], right_quarter_y]))
+        # mid_x = int(np.mean([start_pt[0], end_pt[0]]))
+        # mid_y = int(np.mean([start_pt[1], end_pt[1]]))
+        left_quarter_x = (a*end_pt[0] + b*start_pt[0]) / (a + b)
+        left_quarter_x = int(np.round(left_quarter_x))
+        left_quarter_y = (a*end_pt[1] + b*start_pt[1]) / (a + b)
+        left_quarter_y = int(np.round(left_quarter_y))
+        # left_quarter_x = int(np.mean([start_pt[0], mid_x]))
+        # left_quarter_y = int(np.mean([start_pt[1], mid_y]))
+        a, b = b, a
+        right_quarter_x = (a*end_pt[0] + b*start_pt[0]) / (a + b)
+        right_quarter_x = int(np.round(right_quarter_x))
+        right_quarter_y = (a*end_pt[1] + b*start_pt[1]) / (a + b)
+        right_quarter_y = int(np.round(right_quarter_y))
+        # right_quarter_x = int(np.mean([mid_x, end_pt[0]]))
+        # right_quarter_y = int(np.mean([mid_y, end_pt[1]]))
         return ((left_quarter_x, left_quarter_y),
                 (right_quarter_x, right_quarter_y))
 
     def get_section_boxes(self, bottom_pts, top_pts):
         """ Obtain boxes for lung sections using given points """
         bottom_left_quarter, bottom_right_quarter \
-            = self.divide_line(bottom_pts[0], bottom_pts[1])
+            = self.divide_line(bottom_pts[0], bottom_pts[1], 1, 3)
         top_left_quarter, top_right_quarter \
-            = self.divide_line(top_pts[0], top_pts[1])
+            = self.divide_line(top_pts[0], top_pts[1], 1, 3)
         left_section = np.array((bottom_pts[0], top_pts[0],
                                  top_left_quarter, bottom_left_quarter))
         mid_section = np.array((bottom_left_quarter, top_left_quarter,
@@ -319,27 +343,50 @@ class LungSections:
 
 if __name__ == '__main__':
     # attr_path = ('/home/abhinav/covid19_xray/gradcam_misc/bimcv_stage2/'
-    #              'guided_thresholded/raw_IG_unthresh')
-    # lung_mask_path = '/home/abhinav/CXR_datasets/bimcv_pos/bimcv_iitj_lungSeg/'
-    # attr_path = ('gradcam_misc/rsna_march_21/guided_thresholded/'
-    #              'gcpp_raw_thresh80/msarl')
+    #              'raw_unthresh_rerun1/covid')
+    # lung_mask_path = '/home/abhinav/CXR_datasets/bimcv_pos/lung_seg_raw/'
     attr_path = ('gradcam_misc/rsna_march_21/guided_thresholded/'
-                 'raw_thresh80/resnet1')
+                 'raw_thresh80/msarl')
+    # attr_path = ('gradcam_misc/rsna_march_21/guided_thresholded/'
+    #              'raw_thresh80/resnet1')
     lung_mask_path = '/home/abhinav/CXR_datasets/RSNA_dataset/lung_seg_raw'
     compare_attr_iou(attr_path, lung_mask_path)
-    # measure_geo_dist(attr_path, lung_mask_path, 'pneumonia', 'area')
+    # measure_geo_dist(attr_path, lung_mask_path, 'covid', 'area')
     # fname = 'bimcv_2_sub-S03047_ses-E07985_run-1_bp-chest_vp-ap_cr.png.npy'
     # fname = 'bimcv_2_sub-S03072_ses-E06166_run-1_bp-chest_vp-ap_cr.png.npy'
+    # fname = 'bimcv_2_sub-S03215_ses-E06438_run-1_bp-chest_vp-ap_cr.png.npy'
+    # # attr = np.load('gradcam_misc/bimcv_stage2/raw_unthresh_rerun1/covid/bimcv_stage2_wSeg_FL_pairAug_attn_bimcv_2_sub-S03072_ses-E06166_run-1_bp-chest_vp-ap_cr.npy')
+    # attr = np.load('gradcam_misc/bimcv_stage2/raw_unthresh_rerun1/covid/bimcv_stage2_wSeg_FL_pairAug_attn_bimcv_2_sub-S03215_ses-E06438_run-1_bp-chest_vp-ap_cr.png')
+    # thresh = 0.8*np.max(attr)
+    # attr[attr > thresh] = 1
+    # attr[attr < thresh] = 0
     # lung_mask = np.load(lung_mask_path+fname)
+    # min_row, max_row = np.where(np.any(lung_mask, 0))[0][[0, -1]]
+    # min_col, max_col = np.where(np.any(lung_mask, 1))[0][[0, -1]]
+    # lung_mask = lung_mask[min_col:max_col, min_row:max_row]
+    # lung_mask = cv2.resize(lung_mask, (352, 384), cv2.INTER_AREA)
+    # attr = attr*lung_mask
     # lung_sections = LungSections(lung_mask)
-    # sections = lung_sections.divide_sections(1)
+    # sections = lung_sections.divide_sections(0)
     # lung_mask *= 255
     # lung_mask = np.stack((lung_mask, lung_mask, lung_mask), -1)
-    # cv2.drawContours(lung_mask, [lung_sections.lung_box2], 0, (255, 0, 0), 2)
-    # cv2.drawContours(lung_mask, list(sections), 0, (0, 0, 255), 2)
-    # cv2.drawContours(lung_mask, list(sections), 1, (0, 0, 0), cv2.FILLED)
-    # sections = lung_sections.divide_sections(0)
-    # cv2.drawContours(lung_mask, [lung_sections.lung_box1], 0, (255, 0, 0), 2)
-    # cv2.drawContours(lung_mask, list(sections), 0, (0, 0, 255), 2)
-    # cv2.drawContours(lung_mask, list(sections), 1, (0, 0, 0), cv2.FILLED)
-    # cv2.imwrite('lung_mask_sections_test3.png', lung_mask)
+    # # # cv2.drawContours(lung_mask, [lung_sections.lung_box2], 0, (255, 0, 0), 2)
+    # cv2.drawContours(lung_mask, list(sections), 0, (0, 140, 255), 2)
+    # cv2.drawContours(lung_mask, list(sections), 2, (0, 140, 255), 2)
+    # cv2.drawContours(lung_mask, list(sections), 1, (212, 0, 145), 2)
+    # # # cv2.drawContours(lung_mask, list(sections), 1, (0, 0, 0), cv2.FILLED)
+    # # cv2.drawContours(lung_mask, list(sections), 0, (0, 0, 255), 2)
+    # # # cv2.drawContours(lung_mask, list(sections), 1, (0, 0, 0), cv2.FILLED)
+    # sections = lung_sections.divide_sections(1)
+    # # # cv2.drawContours(lung_mask, [lung_sections.lung_box1], 0, (255, 0, 0), 2)
+    # cv2.drawContours(lung_mask, list(sections), 0, (0, 140, 255), 2)
+    # cv2.drawContours(lung_mask, list(sections), 2, (0, 140, 255), 2)
+    # cv2.drawContours(lung_mask, list(sections), 1, (212, 0, 145), 2)
+    # # # cv2.drawContours(lung_mask, list(sections), 1, (0, 0, 0), cv2.FILLED)
+    # import matplotlib.pyplot as plt
+    # plt.imshow(lung_mask)
+    # plt.imshow(attr, cmap='gray', alpha=0.3)
+    # plt.colorbar()
+    # plt.axis('off')
+    # plt.savefig('lung_sections_overlay_attr.png')
+    # # cv2.imwrite('lung_mask_sections_final.png', lung_mask)
