@@ -18,11 +18,11 @@ import aux
 import config
 from data_handler import DataLoader
 # from aux import weightedBCE as lossFun
-from model import ResNet
+from model import MARL
 from exp_models import RobustDenseNet
 from analyze_performance import PredAnalyzer
 # from unet import UNet
-# from resnet import resnet18
+from resnet import resnet18
 
 
 def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
@@ -308,20 +308,22 @@ def main():
                      'blur', 'sharpen', 'translate']
     trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
                                   # 'unequal_all',
-                                  'random',
-                                  # 'random_class0_all_class1',
-                                  undersample=False, sample_size=1000,
+                                  # 'random',
+                                  # None,
+                                  'random_class0_all_class1',
+                                  undersample=True, sample_size=3000,
+                                  # in_channels=0)
                                   aug_names=all_aug_names, in_channels=0)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize,
-                                  None, in_channels=0)
+                                  None, in_channels=3)
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize,
-                                  None, in_channels=0)
-    model = ResNet(in_channels=1, num_blocks=4, num_layers=4,
-                   num_classes=2, downsample_freq=1).cuda()
+                                  None, in_channels=3)
+    model = MARL(in_channels=1, num_blocks=4, num_layers=4,
+                 num_classes=2, downsample_freq=1).cuda()
     # model = RobustDenseNet(pretrained=True, num_classes=2).cuda()
 # print(summary(model, torch.zeros((1, 1, 512, 512)).cuda(), show_input=True))
     # model = resnet18(num_classes=2).cuda()
-    # model = nn.DataParallel(model)
+    model = nn.DataParallel(model)
     if args.loadModelFlag:
         print(args.saveName)
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
@@ -337,9 +339,11 @@ def main():
 
     # class_wts = aux.getClassBalancedWt(0.9999, [4610, 461])
     # class_wts = aux.getClassBalancedWt(0.9999, [6726, 4610+461])
-    class_wts = aux.getClassBalancedWt(0.9999, [4810, 4810])
+    # class_wts = aux.getClassBalancedWt(0.9999, [4810, 4810])
 
-    # class_wts = aux.getClassBalancedWt(0.9999, [4800, 4761])
+    # class_wts = aux.getClassBalancedWt(0.9999, [2040, 2007])
+    # class_wts = aux.getClassBalancedWt(0.9999, [7081, 8790])
+    class_wts = aux.getClassBalancedWt(0.9999, [4853, 3937])
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)
@@ -356,35 +360,37 @@ def main():
                            'classify')
             torch.save(model.state_dict(), 'savedModels/'+args.saveName+'.pt')
         # epochNum = 0
-# valMetrics, val_loss_list = run_model(
-#     val_data_handler, model, optimizer, class_wts, loss_wts,
-#     args.gamma, amp
-# )
-# aux.logMetrics(epochNum, valMetrics, val_loss_list, 'val', logFile,
-#                'classify')
-            tstMetrics, tst_loss_list = run_model(
-                tst_data_handler, model, optimizer, class_wts, loss_wts,
-                args.gamma, amp, args.saveName
+            valMetrics, val_loss_list = run_model(
+                val_data_handler, model, optimizer, class_wts, loss_wts,
+                args.gamma, amp
             )
-            if bestValRecord and tstMetrics.F1 > bestVal:
-                bestVal = aux.save_chkpt(bestValRecord, bestVal, tstMetrics.F1,
-                                         'F1', model, args.saveName)
-            aux.logMetrics(epochNum, tstMetrics, tst_loss_list, 'tst', logFile,
+            aux.logMetrics(epochNum, valMetrics, val_loss_list, 'val', logFile,
                            'classify')
+            if bestValRecord and valMetrics.F1 > bestVal:
+                bestVal = aux.save_chkpt(bestValRecord, bestVal, valMetrics.F1,
+                                         'F1', model, args.saveName)
+        tstMetrics, tst_loss_list = run_model(
+            tst_data_handler, model, optimizer, class_wts, loss_wts,
+            args.gamma, amp, args.saveName
+        )
+        aux.logMetrics(epochNum, tstMetrics, tst_loss_list, 'tst', logFile,
+                       'classify')
     elif args.runMode == 'two_stage_inference':
         model_stage1 = RobustDenseNet(pretrained=False, num_classes=2).cuda()
-        # model_stage1 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
-        #                       num_classes=2, downsample_freq=1).cuda()
+        # model_stage1 = MARL(in_channels=1, num_blocks=4, num_layers=4,
+        #                     num_classes=2, downsample_freq=1).cuda()
         # model_stage1 = nn.DataParallel(model_stage1)
-        model_stage2 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
-                              num_classes=2, downsample_freq=1).cuda()
+        model_stage2 = MARL(in_channels=1, num_blocks=4, num_layers=4,
+                            num_classes=2, downsample_freq=1).cuda()
         model_stage2 = nn.DataParallel(model_stage2)
         flg1 = aux.loadModel('chkpt', model_stage1,
-                             # 'pd_wSeg_FL_pairAug_densenet_fold1_final')
-                             'covidx_stage1_noSeg_FL_pairAug_fold0')
+                             'stage1_covidx_split1_densenet121_wAux_FL')
+                             # 'covidx_stage1_noSeg_segTest')
 # 'stage1_covidx_split1')
         flg2 = aux.loadModel('chkpt', model_stage2,
-                             'covidx_stage2_noSeg_FL_pairAug_attn_fold0')
+                             'covidx_stage2_wSeg_segTest')
+                             # 'stage2_covidx_split1')
+                             # 'covidx_stage2_noSeg_FL_pairAug_attn_fold0')
         print(flg1, flg2)
         two_stage_inference(val_data_handler, model_stage1, model_stage2)
         two_stage_inference(tst_data_handler, model_stage1, model_stage2)
@@ -396,8 +402,8 @@ def main():
         analyzer_stg1 = PredAnalyzer(filename1, True, None)
         # analyzer_stg2 = PredAnalyzer(filename2, True, 'AUROC')
         analyzer_stg2 = PredAnalyzer(filename2, True, None)
-        model_stage2 = ResNet(in_channels=1, num_blocks=4, num_layers=4,
-                              num_classes=2, downsample_freq=1).cuda()
+        model_stage2 = MARL(in_channels=1, num_blocks=4, num_layers=4,
+                            num_classes=2, downsample_freq=1).cuda()
         model_stage2 = nn.DataParallel(model_stage2)
         flg2 = aux.loadModel('chkpt', model_stage2,
                              'bimcv_stage2_wSeg_FL_pairAug_attn')
@@ -424,37 +430,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-# Graveyard
-    # trn_nBatches = 492  # 849
-    # img = dcm.dcmread(full_name).pixel_array
-    # img = np.load(full_name)
-    # img[img < config.window[0]] = config.window[0]
-    # img[img > config.window[1]] = config.window[1]
-    # crop1 = config.crop_params[0]
-    # crop2 = config.crop_params[1]
-    # center = (img.shape[0]//2, img.shape[1]//2)
-    # img = img[center[0]-crop1:center[0]+crop1,
-    # center[1]-crop2:center[1]+crop2]
-    # toSave = torch.cat((torch.cat(pred_list).unsqueeze(-1),
-    # torch.cat(label_list)), axis=1)
-    # toSave1 = torch.cat((toSave.float(), torch.cat(softpred_list)),
-    # axis=1)
-    # np.savetxt('tst_nih_wAug_preds.csv', toSave1.numpy(), delimiter=',')
-    # model = inception_v3(pretrained=False, progress=True,  num_classes=2,
-    #                      aux_logits=True, init_weights=True).cuda()
-    # model = resnet18(pretrained=False, progress=True, num_classes=2).cuda()
-    # # for cross dataset testing
-    # tstMetrics = run_model(trnDataLoader, model, optimizer, class_wts, 'tst',
-    # args.batchSize, trn_nBatches, None)
-    # logMetrics(0, tstMetrics, 'tst', logFile, args.saveName)
-    # lung_mask_soft = seg_model.forward(img)
-    # lung_mask = torch.argmax(lung_mask_soft[0], 0)
-    # img = img[0, 0, :, :]*lung_mask
-    # seg_model = UNet(n_classes=2).cuda()
-    # aux.loadModel('chkpt', seg_model, 'lung_seg')
-    # auroc, auprc, fpr_tpr_arr, precision_recall_arr = aux.AUC(softpred_list,
-    #                                                           label_list)
-    # metrics = config.Metrics(0, acc, f1, auroc, auprc, fpr_tpr_arr,
-    #                          precision_recall_arr)
-    # return metrics

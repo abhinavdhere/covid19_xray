@@ -67,13 +67,13 @@ class DataLoader:
         if self.data_type == 'val':
             # flist_name = (config.PATH_FLIST + '/old_split_val.txt')
             # flist_name = (config.PATH_FLIST + '/5fold_split_val.txt')
-            flist_name = (config.PATH_FLIST + '/val_list.txt')
+            flist_name = (config.PATH_FLIST + '/val.txt')
         else:
             # flist_name = (config.PATH_FLIST + '/old_split_'
             # + self.data_type + '.txt')
             # flist_name = (config.PATH_FLIST + '/5fold_split_' +
             #               str(self.fold_num) + '_' + self.data_type + '.txt')
-            flist_name = os.path.join(config.PATH_FLIST, self.data_type+'_list.txt')
+            flist_name = os.path.join(config.PATH_FLIST, self.data_type+'.txt')
         all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
         file_list = []
         for file_name in all_filelist:
@@ -112,8 +112,8 @@ class DataLoader:
         aug_list = []
         if self._aug_setup == 'random':
             _tmp_aug_names = self._aug_names.copy()
-            _tmp_aug_names.remove('normal')
-            _tmp_aug_names = get_combinations(_tmp_aug_names)
+            # _tmp_aug_names.remove('normal')
+            # _tmp_aug_names = get_combinations(_tmp_aug_names)
             for name in self._file_list:
                 name_w_code = self.set_random_aug(name, _tmp_aug_names)
                 aug_list.append(name_w_code)
@@ -188,9 +188,9 @@ class DataLoader:
             img (torch.Tensor): CUDA tensor of size (in_channels, size0, size1)
                 with required preprocessing.
         """
-        # img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
-        img = dcm.dcmread(full_name)
-        img = img.pixel_array
+        img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
+        # img = dcm.dcmread(full_name)
+        # img = img.pixel_array
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         img = (img - np.mean(img)) / np.std(img)
@@ -236,34 +236,36 @@ class DataLoader:
                                         cv2.INTER_AREA)
         try:
             if occlusion:
-                lung_mask_central = self.apply_occlusion_mask(
-                    self.lung_mask.copy(), 'central')
+                # lung_mask_central = self.apply_occlusion_mask(
+                #     self.lung_mask.copy(), 'central')
+                # img = img*lung_mask_central[:, :, 0]
                 lung_mask_peripheral = self.apply_occlusion_mask(
                     self.lung_mask.copy(), 'peripheral')
-                if not self.lbl:
-                    img = img*lung_mask_central[:, :, 0]
-                    # img_central = torch.Tensor(
-                    #     img_central).unsqueeze(0).unsqueeze(0)
-                    # img_central = kornia.filters.gaussian_blur2d(
-                    #     img_central, (15, 15), (7, 7)).numpy()[0, 0, :, :]
-                    # img_central = cv2.GaussianBlur(
-                    #     img*lung_mask_central[:, :, 0], (15, 15), 7, 7)
-                    # img_peripheral = cv2.GaussianBlur(
-                    #     img*lung_mask_peripheral[:, :, 0], (15, 15), 7, 7)
-                    # img_peripheral = img*lung_mask_peripheral[:, :, 0]
-                    # img_central = img*lung_mask_central[:, :, 0]
-                else:
-                    img = img*lung_mask_peripheral[:, :, 0]
-                    # img_peripheral = torch.Tensor(
-                    #     img_peripheral).unsqueeze(0).unsqueeze(0)
-                    # img_peripheral = kornia.filters.gaussian_blur2d(
-                    #     img_peripheral, (15, 15), (7, 7)).numpy()[0, 0, :, :]
-                    # img_central = cv2.GaussianBlur(
-                    #     img*lung_mask_central[:, :, 0], (15, 15), 7, 7)
-                    # img_peripheral = cv2.GaussianBlur(
-                    #     img*lung_mask_peripheral[:, :, 0], (15, 15), 7, 7)
-                    # img_peripheral = img*lung_mask_peripheral[:, :, 0]
-                    # img_central = img*lung_mask_central[:, :, 0]
+                img = img*lung_mask_peripheral[:, :, 0]
+                # if self.lbl:
+                #     img = img*lung_mask_central[:, :, 0]
+                #     # img_central = torch.Tensor(
+                #     #     img_central).unsqueeze(0).unsqueeze(0)
+                #     # img_central = kornia.filters.gaussian_blur2d(
+                #     #     img_central, (15, 15), (7, 7)).numpy()[0, 0, :, :]
+                #     # img_central = cv2.GaussianBlur(
+                #     #     img*lung_mask_central[:, :, 0], (15, 15), 7, 7)
+                #     # img_peripheral = cv2.GaussianBlur(
+                #     #     img*lung_mask_peripheral[:, :, 0], (15, 15), 7, 7)
+                #     # img_peripheral = img*lung_mask_peripheral[:, :, 0]
+                #     # img_central = img*lung_mask_central[:, :, 0]
+                # else:
+                #     img = img*lung_mask_peripheral[:, :, 0]
+                #     # img_peripheral = torch.Tensor(
+                #     #     img_peripheral).unsqueeze(0).unsqueeze(0)
+                #     # img_peripheral = kornia.filters.gaussian_blur2d(
+                #     #     img_peripheral, (15, 15), (7, 7)).numpy()[0, 0, :, :]
+                #     # img_central = cv2.GaussianBlur(
+                #     #     img*lung_mask_central[:, :, 0], (15, 15), 7, 7)
+                #     # img_peripheral = cv2.GaussianBlur(
+                #     #     img*lung_mask_peripheral[:, :, 0], (15, 15), 7, 7)
+                #     # img_peripheral = img*lung_mask_peripheral[:, :, 0]
+                #     # img_central = img*lung_mask_central[:, :, 0]
                 # img = img_central + img_peripheral
                 # import pdb
                 # pdb.set_trace()
