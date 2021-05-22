@@ -325,7 +325,7 @@ class DataLoader:
                 name_w_path = os.path.join(config.PATH, file_name)
                 # try:
                 img = self.preprocess_data(name_w_path, aug_name,
-                                           segment_lung=False)
+                                           segment_lung=True)
                 # Diagnostic option - to save images the way they are
                 # just before going into the network
                 # np.save('test_data_to_check/'
@@ -385,9 +385,9 @@ class SegDataLoader(DataLoader):
             img (torch.Tensor): CUDA tensor of size (in_channels, size0, size1)
                 with required preprocessing.
         """
-        # img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
-        img = dcm.dcmread(full_name)
-        img = img.pixel_array
+        img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
+        # img = dcm.dcmread(full_name)
+        # img = img.pixel_array
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         if file_type == 'data':
@@ -444,7 +444,7 @@ class SegDataLoader(DataLoader):
                 # lbl_name_w_path = os.path.join(config.PATH, 'labels',
                 #                                file_name)
                 img = self.preprocess_data(name_w_path, 'data', aug_name,
-                                           segment_lung=True)
+                                           segment_lung=False)
                 self.lbl = torch.ones(img.shape)
                 # lbl = self.preprocess_data(self.lbl_name_w_path, 'label',
                 # aug_name, segment_lung=False)

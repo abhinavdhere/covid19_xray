@@ -308,16 +308,16 @@ def main():
                      'blur', 'sharpen', 'translate']
     trn_data_handler = DataLoader('trn', args.foldNum, args.batchSize,
                                   # 'unequal_all',
-                                  # 'random',
+                                  'random',
                                   # None,
-                                  'random_class0_all_class1',
-                                  undersample=True, sample_size=3000,
+                                  # 'random_class0_all_class1',
+                                  undersample=False, sample_size=3000,
                                   # in_channels=0)
                                   aug_names=all_aug_names, in_channels=0)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize,
-                                  None, in_channels=3)
+                                  None, in_channels=0)
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize,
-                                  None, in_channels=3)
+                                  None, in_channels=0)
     model = MARL(in_channels=1, num_blocks=4, num_layers=4,
                  num_classes=2, downsample_freq=1).cuda()
     # model = RobustDenseNet(pretrained=True, num_classes=2).cuda()
@@ -362,7 +362,7 @@ def main():
         # epochNum = 0
             valMetrics, val_loss_list = run_model(
                 val_data_handler, model, optimizer, class_wts, loss_wts,
-                args.gamma, amp
+                args.gamma, amp, save_name=args.saveName
             )
             aux.logMetrics(epochNum, valMetrics, val_loss_list, 'val', logFile,
                            'classify')
