@@ -42,13 +42,13 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
     if amp:
         with torch.cuda.amp.autocast(enabled=False):
             if process == 'trn':
-                pred, aux_pred, conicity = model.forward(X)
-                # pred, aux_pred = model.forward(X)
+                # pred, aux_pred, conicity = model.forward(X)
+                pred, aux_pred = model.forward(X)
                 # pred = model.forward(X)
                 aux_pred = F.softmax(aux_pred, 1)
             else:
-                pred, conicity = model.forward(X)
-                # pred = model.forward(X)
+                # pred, conicity = model.forward(X)
+                pred = model.forward(X)
             pred = F.softmax(pred.float(), 1)
             main_focal_loss = focal_loss_fn(pred, y_OH)
             if process == 'trn':
@@ -60,8 +60,8 @@ def predict_compute_loss(X, model, y_OH, class_wts, loss_wts, loss_list,
             else:
                 loss = loss_wts[0]*main_focal_loss
             loss_list['main_focal_loss'] += main_focal_loss
-            loss = loss + loss_wts[2]*torch.sum(conicity)
-            loss_list['conicity'] += torch.sum(conicity).item()
+            # loss = loss + loss_wts[2]*torch.sum(conicity)
+            # loss_list['conicity'] += torch.sum(conicity).item()
         # pred = model.forward(X)
     # else:
     #         if process == 'trn':
@@ -101,8 +101,8 @@ def run_model(data_handler, model, optimizer, class_wts, loss_wts, gamma, amp,
     process = data_handler.data_type
     running_loss = 0
     # loss_list = {'main_bce': 0, 'aux_bce': 0, 'conicity': 0}
-    loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0, 'conicity': 0}
-    # loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0}
+    # loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0, 'conicity': 0}
+    loss_list = {'main_focal_loss': 0, 'aux_focal_loss': 0}
     # loss_list = {'main_focal_loss': 0}
     pred_list = []
     label_list = []
@@ -313,17 +313,17 @@ def main():
                                   # 'random_class0_all_class1',
                                   undersample=False, sample_size=3000,
                                   # in_channels=0)
-                                  aug_names=all_aug_names, in_channels=0)
+                                  aug_names=all_aug_names, in_channels=3)
     val_data_handler = DataLoader('val', args.foldNum, args.batchSize,
-                                  None, in_channels=0)
+                                  None, in_channels=3)
     tst_data_handler = DataLoader('tst', args.foldNum, args.batchSize,
-                                  None, in_channels=0)
-    model = MARL(in_channels=1, num_blocks=4, num_layers=4,
-                 num_classes=2, downsample_freq=1).cuda()
-    # model = RobustDenseNet(pretrained=True, num_classes=2).cuda()
+                                  None, in_channels=3)
+    # model = MARL(in_channels=1, num_blocks=4, num_layers=4,
+    #              num_classes=2, downsample_freq=1).cuda()
+    model = RobustDenseNet(pretrained=True, num_classes=2).cuda()
 # print(summary(model, torch.zeros((1, 1, 512, 512)).cuda(), show_input=True))
     # model = resnet18(num_classes=2).cuda()
-    model = nn.DataParallel(model)
+    # model = nn.DataParallel(model)
     if args.loadModelFlag:
         print(args.saveName)
         successFlag = aux.loadModel(args.loadModelFlag, model, args.saveName)
@@ -342,8 +342,8 @@ def main():
     # class_wts = aux.getClassBalancedWt(0.9999, [4810, 4810])
 
     # class_wts = aux.getClassBalancedWt(0.9999, [2040, 2007])
-    # class_wts = aux.getClassBalancedWt(0.9999, [7081, 8790])
-    class_wts = aux.getClassBalancedWt(0.9999, [4853, 3937])
+    class_wts = aux.getClassBalancedWt(0.9999, [7081, 8790])
+    # class_wts = aux.getClassBalancedWt(0.9999, [4853, 3937])
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learningRate,
                                  weight_decay=args.weightDecay)

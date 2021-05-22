@@ -34,8 +34,8 @@ DATASET_LIST = ['covidx']
 # DATASET_LIST = ['sirm', 'cohen', 'kg']
 # DATASET_LIST = ['actmed', 'fig1', 'sirm', 'cohen', 'rsna']
 # DATASET_LIST = ['bimcv', 'chxs']
-# TASK = 'normal_vs_pneumonia'
-TASK = 'pneumonia_vs_covid'
+TASK = 'normal_vs_pneumonia'
+# TASK = 'pneumonia_vs_covid'
 # TASK = 'two_stage'
 
 # # Used variables
