@@ -152,7 +152,7 @@ class MARL(nn.Module):
         if self.training:
             return out, aux, conicity_sum
         else:
-            return out, conicity_sum
+            return out #, conicity_sum
 
     def get_conicity(self, attn_map):
         atm = 0

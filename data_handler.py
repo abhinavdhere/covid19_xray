@@ -81,6 +81,8 @@ class DataLoader:
                 self.lbl = file_name.split('_')[1]
                 if config.TASK == 'pneumonia_vs_covid' and self.lbl == '0':
                     continue
+                # elif config.TASK == 'normal_vs_pneumonia' and self.lbl == '2':
+                #     continue
                 else:
                     file_list.append(file_name)
         return file_list
@@ -112,8 +114,8 @@ class DataLoader:
         aug_list = []
         if self._aug_setup == 'random':
             _tmp_aug_names = self._aug_names.copy()
-            # _tmp_aug_names.remove('normal')
-            # _tmp_aug_names = get_combinations(_tmp_aug_names)
+            _tmp_aug_names.remove('normal')
+            _tmp_aug_names = get_combinations(_tmp_aug_names)
             for name in self._file_list:
                 name_w_code = self.set_random_aug(name, _tmp_aug_names)
                 aug_list.append(name_w_code)
@@ -191,6 +193,8 @@ class DataLoader:
         img = cv2.imread(full_name, cv2.IMREAD_ANYDEPTH)
         # img = dcm.dcmread(full_name)
         # img = img.pixel_array
+        if img is None:
+            print(full_name)
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         img = (img - np.mean(img)) / np.std(img)
@@ -324,6 +328,7 @@ class DataLoader:
                     self.lbl = 1
                 name_w_path = os.path.join(config.PATH, file_name)
                 # try:
+                # print(name_w_path)
                 img = self.preprocess_data(name_w_path, aug_name,
                                            segment_lung=True)
                 # Diagnostic option - to save images the way they are

@@ -24,7 +24,8 @@ from collections import namedtuple
 # PATH = '/home/abhinav/CXR_datasets/bimcv_pos/bimcv_iitj'
 # PATH_FLIST = '/home/abhinav/CXR_datasets/bimcv_pos/bimcv_iitj_flists'
 PATH = '/home/abhinav/CXR_datasets/COVIDx_data_may21/all_images'
-PATH_FLIST = '/home/abhinav/CXR_datasets/COVIDx_data_may21/file_lists'
+PATH_FLIST = '/home/abhinav/CXR_datasets/COVIDx_data_may21/file_lists_cn'
+# PATH_FLIST = '/home/abhinav/CXR_datasets/COVIDx_data_may21/file_lists'
 Metrics = namedtuple('Metrics', ['Loss', 'Acc', 'F1', 'AUROC', 'AUPRC',
                                  'fpr_tpr_arr', 'precision_recall_arr'])
 IMG_DIMS = (512, 512)
