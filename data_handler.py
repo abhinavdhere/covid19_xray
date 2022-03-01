@@ -63,26 +63,29 @@ class DataLoader:
         Returns:
             file_list (List[str]): original list of file names from directory
         """
-        # allFileList = os.listdir()
         if self.data_type == 'val':
-            # flist_name = (config.PATH_FLIST + '/old_split_val.txt')
-            # flist_name = (config.PATH_FLIST + '/5fold_split_val.txt')
-            flist_name = (config.PATH_FLIST + '/val.txt')
+            flist_name = (config.PATH_FLIST + '/img_list_val.txt')
         else:
-            # flist_name = (config.PATH_FLIST + '/old_split_'
-            # + self.data_type + '.txt')
-            # flist_name = (config.PATH_FLIST + '/5fold_split_' +
-            #               str(self.fold_num) + '_' + self.data_type + '.txt')
-            flist_name = os.path.join(config.PATH_FLIST, self.data_type+'.txt')
+            flist_name = (config.PATH_FLIST + '/img_list_' + self.data_type 
+                          + '_split' + str(self.fold_num) + '.txt')
+            # flist_name = os.path.join(config.PATH_FLIST, self.data_type+'.txt')
         all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
         file_list = []
         for file_name in all_filelist:
             if file_name.split('_')[0] in config.DATASET_LIST:
                 self.lbl = file_name.split('_')[1]
-                if config.TASK == 'pneumonia_vs_covid' and self.lbl == '0':
+                if ((config.TASK == 'bacteria_vs_virus'
+                        or config.TASK == 'virus_vs_covid')
+                        and self.lbl == '0'):
                     continue
-                # elif config.TASK == 'normal_vs_pneumonia' and self.lbl == '2':
-                #     continue
+                elif (config.TASK == 'virus_vs_covid'
+                      and (self.lbl == '0' or self.lbl == '1')):
+                    continue
+                elif config.TASK == 'pneumonia_vs_covid' and self.lbl == '0':
+                    continue
+                elif (config.TASK == 'bacteria_vs_ncVirus'
+                      and (self.lbl == '3' or self.lbl == '0')):
+                    continue
                 else:
                     file_list.append(file_name)
         return file_list
@@ -226,8 +229,6 @@ class DataLoader:
             img (torch.Tensor): CUDA Image tensor with lungs region only
         """
         self.lung_mask = np.load(config.PATH.rsplit('/', 1)[0]
-                                 # + '/bimcv_iitj_lungSeg/'+file_name+'.npy')
-        # lung_mask = np.load(config.PATH.rsplit('/', 1)[0]
                                  + '/lung_seg_raw/'+file_name+'.npy')
         if crop:
             min_row, max_row = np.where(np.any(self.lung_mask, 0))[0][[0, -1]]
@@ -246,36 +247,6 @@ class DataLoader:
                 lung_mask_peripheral = self.apply_occlusion_mask(
                     self.lung_mask.copy(), 'peripheral')
                 img = img*lung_mask_peripheral[:, :, 0]
-                # if self.lbl:
-                #     img = img*lung_mask_central[:, :, 0]
-                #     # img_central = torch.Tensor(
-                #     #     img_central).unsqueeze(0).unsqueeze(0)
-                #     # img_central = kornia.filters.gaussian_blur2d(
-                #     #     img_central, (15, 15), (7, 7)).numpy()[0, 0, :, :]
-                #     # img_central = cv2.GaussianBlur(
-                #     #     img*lung_mask_central[:, :, 0], (15, 15), 7, 7)
-                #     # img_peripheral = cv2.GaussianBlur(
-                #     #     img*lung_mask_peripheral[:, :, 0], (15, 15), 7, 7)
-                #     # img_peripheral = img*lung_mask_peripheral[:, :, 0]
-                #     # img_central = img*lung_mask_central[:, :, 0]
-                # else:
-                #     img = img*lung_mask_peripheral[:, :, 0]
-                #     # img_peripheral = torch.Tensor(
-                #     #     img_peripheral).unsqueeze(0).unsqueeze(0)
-                #     # img_peripheral = kornia.filters.gaussian_blur2d(
-                #     #     img_peripheral, (15, 15), (7, 7)).numpy()[0, 0, :, :]
-                #     # img_central = cv2.GaussianBlur(
-                #     #     img*lung_mask_central[:, :, 0], (15, 15), 7, 7)
-                #     # img_peripheral = cv2.GaussianBlur(
-                #     #     img*lung_mask_peripheral[:, :, 0], (15, 15), 7, 7)
-                #     # img_peripheral = img*lung_mask_peripheral[:, :, 0]
-                #     # img_central = img*lung_mask_central[:, :, 0]
-                # img = img_central + img_peripheral
-                # import pdb
-                # pdb.set_trace()
-            # else:
-            #     img = img*self.lung_mask
-            # img = img*self.lung_mask[:, :, 0]
         except IndexError:
             pass
             # print(file_name)
@@ -322,7 +293,22 @@ class DataLoader:
                 aug_name = file_name_full.split('_')[-1]
                 nameParts = file_name.split('_')
                 self.lbl = int(nameParts[1])
-                if config.TASK == 'pneumonia_vs_covid':
+                if config.TASK == 'virus_vs_covid':
+                    self.lbl -= 2
+                elif config.TASK == 'bacteria_vs_virus':
+                    # bacteria and virus+covid cases
+                    if self.lbl != 3:
+                        self.lbl -= 1
+                    elif self.lbl == 3:
+                        self.lbl -= 2
+                elif config.TASK == 'pneumonia_vs_covid':
+                    # bacteria + nonCovid virus vs covid
+                    self.lbl -= 1
+                    # if self.lbl == 1 or self.lbl == 2:
+                    #     self.lbl = 0
+                    # elif self.lbl == 3:
+                    #     self.lbl = 1
+                elif config.TASK == 'bacteria_vs_ncVirus':
                     self.lbl -= 1
                 elif config.TASK == 'normal_vs_pneumonia' and self.lbl > 1:
                     self.lbl = 1
@@ -335,10 +321,6 @@ class DataLoader:
                 # just before going into the network
                 # np.save('test_data_to_check/'
                 #         + file_name + '.npy', img.detach().cpu().numpy())
-                # except cv2.error:
-                #     import pdb
-                #     pdb.set_trace()
-                # pdb.set_trace()
                 if torch.std(img) == 0 or not torch.isfinite(img).all():
                     raise ValueError('Image intensity inappropriate'
                                      '(std is 0 or image has infinity')
@@ -368,8 +350,6 @@ class SegDataLoader(DataLoader):
             flist_name = (config.PATH_FLIST + '/val_list.txt')
         else:
             flist_name = (config.PATH_FLIST + '/all_images.txt')
-            # flist_name = (config.PATH_FLIST
-            #               + '/' + self.data_type + '_list.txt')
         all_filelist = np.loadtxt(flist_name, delimiter='\n', dtype=str)
         file_list = []
         for file_name in all_filelist:
@@ -396,7 +376,6 @@ class SegDataLoader(DataLoader):
         img = cv2.resize(img, (config.IMG_DIMS[0], config.IMG_DIMS[1]),
                          cv2.INTER_AREA)
         if file_type == 'data':
-            # img = aux.BCET(0, 255, 86, img)  # BCET contrast enhancement
             try:
                 if np.mean(img) > 0.5 or np.mean(img) < -0.5:
                     img = (img - np.mean(img)) / np.std(img)
@@ -444,15 +423,9 @@ class SegDataLoader(DataLoader):
                 file_name = '_'.join(file_name_full.split('_')[:-1])
                 aug_name = file_name_full.split('_')[-1]
                 name_w_path = os.path.join(config.PATH, file_name)
-                # name_w_path = os.path.join(config.PATH, 'images',
-                #                            file_name.split('.')[0]+'.jpeg')
-                # lbl_name_w_path = os.path.join(config.PATH, 'labels',
-                #                                file_name)
                 img = self.preprocess_data(name_w_path, 'data', aug_name,
                                            segment_lung=False)
                 self.lbl = torch.ones(img.shape)
-                # lbl = self.preprocess_data(self.lbl_name_w_path, 'label',
-                # aug_name, segment_lung=False)
                 if torch.std(img) == 0 or not torch.isfinite(img).all():
                     raise ValueError('Image intensity inappropriate'
                                      '(std is 0 or image has infinity')

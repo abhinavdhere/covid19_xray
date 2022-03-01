@@ -168,7 +168,9 @@ def measure_attr_areas(attr, bb_gt_list, lung_mask):
 
 def measure_geo_dist(path, lung_mask_path, class_name, measure):
     path = os.path.join(path)#, class_name)
-    with open('geo_dist_attr_cntr_area_lungwise_'+class_name+'.csv', 'a') as f:
+    # import pdb
+    # pdb.set_trace()
+    with open('geo_dist_attr_cntr_area_lungwise_b_ncvp'+class_name+'.csv', 'a') as f:
         writer = csv.writer(f)
         for item in os.listdir(path):
             if (os.path.isfile(os.path.join(path, item))):
@@ -176,24 +178,24 @@ def measure_geo_dist(path, lung_mask_path, class_name, measure):
                 thresh = 0.8*np.max(attr)
                 attr[attr < thresh] = 0
                 attr[attr > thresh] = 1
-                if class_name == 'covid':
-                    lung_mask_name = (
-                        '_'.join(item.split('_')[6:]).rsplit(
-                            '.', 1)[0]+'.png.npy')
-                elif class_name == 'pneumonia':
-                    lung_mask_name = (
-                        '_'.join(item.split('_')[6:]).rsplit(
-                            '.', 1)[0]+'.jpg.npy')
-                else:
-                    lung_mask_name = 'rsna_'+'_'.join(
-                        item.split('_')[1:]).split('.')[
-                        0]+'.dcm.npy'
+                # if class_name == 'covid':
+                #     lung_mask_name = (
+                #         '_'.join(item.split('_')[6:]).rsplit(
+                #             '.', 1)[0]+'.png.npy')
+                # elif class_name == 'pneumonia':
+                #     lung_mask_name = (
+                #         '_'.join(item.split('_')[6:]).rsplit(
+                #             '.', 1)[0]+'.jpg.npy')
+                # else:
+                lung_mask_name = 'kgpt_'+'_'.join(
+                    item.split('_')[1:]).split('.')[
+                    0]+'.jpeg.npy'
                 try:
                     lung_mask = np.load(os.path.join(lung_mask_path,
                                                      lung_mask_name))
                 except FileNotFoundError:
+                    print(item)
                     continue
-                    # print(item)
                 min_row, max_row = np.where(np.any(lung_mask, 0))[0][[0, -1]]
                 min_col, max_col = np.where(np.any(lung_mask, 1))[0][[0, -1]]
                 lung_mask = lung_mask[min_col:max_col, min_row:max_row]
@@ -245,8 +247,8 @@ def measure_geo_dist(path, lung_mask_path, class_name, measure):
                         lung_area_list[0][1] + lung_area_list[1][1],
                         lung_area_list[0][2] + lung_area_list[1][2]
                     ]
-                    # writer.writerow(record)
-                    writer.writerow(lung_area_list[0]+lung_area_list[1])
+                    writer.writerow(record)
+                    # writer.writerow(lung_area_list[0]+lung_area_list[1])
 
 
 class LungSections:
@@ -358,12 +360,12 @@ if __name__ == '__main__':
     # attr_path = ('/home/abhinav/covid19_xray/gradcam_misc/bimcv_stage2/'
     #              'raw_unthresh_rerun1/covid')
     # lung_mask_path = '/home/abhinav/CXR_datasets/bimcv_pos/lung_seg_raw/'
-    attr_path = ('gradcam_misc/rsna_jun21/marl_raw_normal')
+    attr_path = ('gradcam_misc/kgpt/bacteria_vs_virus/bacteria_raw')
     # attr_path = ('gradcam_misc/rsna_march_21/guided_thresholded/'
     #              'raw_thresh80/resnet1')
-    lung_mask_path = '/home/abhinav/CXR_datasets/RSNA_dataset/lung_seg_raw'
+    lung_mask_path = '/home/abhinav/CXR_datasets/kagglePneumonia/lung_seg_raw'
     # compare_attr_iou(attr_path, lung_mask_path)
-    measure_geo_dist(attr_path, lung_mask_path, 'normal', 'area')
+    measure_geo_dist(attr_path, lung_mask_path, 'bacteria', 'area')
     # fname = 'bimcv_2_sub-S03047_ses-E07985_run-1_bp-chest_vp-ap_cr.png.npy'
     # fname = 'bimcv_2_sub-S03072_ses-E06166_run-1_bp-chest_vp-ap_cr.png.npy'
     # fname = 'bimcv_2_sub-S03215_ses-E06438_run-1_bp-chest_vp-ap_cr.png.npy'

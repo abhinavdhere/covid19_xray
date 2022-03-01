@@ -95,8 +95,8 @@ if __name__ == '__main__':
     # pred_list = []
     for i in range(num_batches):
         X, y, fName = tst_data_handler.datagen.__next__()
-        if fName[0].split('_')[1] == '2':
-            continue
+        # if fName[0].split('_')[1] == '2':
+        #     continue
         # X, y, fName = val_data_handler.datagen.__next__()
         mask_name = '_'.join(fName[0].split('_')[:-1])
         lung_mask = np.load(config.PATH.rsplit('/', 1)[0]
@@ -105,7 +105,8 @@ if __name__ == '__main__':
         with torch.no_grad():
             pred = model.forward(X)
             pred = F.softmax(pred, 1)
-        if (y.item() == 0 and torch.argmax(pred).item() == 0):
+        class_id = 0
+        if (y.item() == class_id and torch.argmax(pred).item() == class_id):
             # and (pred[0, 1].item() > 0.8):
             # pred_list.append(pred[0, 1].item())
     # print(len(pred_list))
@@ -122,7 +123,7 @@ if __name__ == '__main__':
             # gcObj = captum.attr.LayerGradCam(model.forward,
             #                                  model.module.layer4)
             gcObj = captum.attr.LayerGradCam(model.forward, model.module.semifinal)
-            attr = gcObj.attribute(X, 1)
+            attr = gcObj.attribute(X, class_id)
             attr = torch.abs(attr)
             attrRescaled = Image.fromarray(attr.detach().cpu()
                                            .numpy()[0, 0, :, :]).resize(
@@ -135,19 +136,19 @@ if __name__ == '__main__':
             min_col, max_col = np.where(np.any(lung_mask, 1))[0][[0, -1]]
             lung_mask = lung_mask[min_col:max_col, min_row:max_row]
             lung_mask = cv2.resize(lung_mask, (352, 384), cv2.INTER_AREA)
-            # plt.imshow(img, cmap='gray')
+            plt.imshow(img, cmap='gray')
             attr_map = np.array(attrRescaled)
             # thresh = 0.8*np.max(attr_map)
             # attr_map[attr_map < thresh] = 0
             # attr_map[attr_map > thresh] = 1
-            # plt.imshow(lung_mask*attr_map, cmap='jet', alpha=0.3)
+            plt.imshow(lung_mask*attr_map, cmap='jet', alpha=0.3)
             # plt.imshow(attr_map, cmap='jet', alpha=0.3)
-            # plt.title('Overlayed Attributions')
-            # plt.axis('off')
-            # plt.colorbar()
+            plt.title('Overlayed Attributions')
+            plt.axis('off')
+            plt.colorbar()
             # # plt.savefig('test_threshold_covid_bimcv.png')
-            # # plt.savefig('./gradcam_misc/rsna_march_21/resnet1/' +
-            # #             fName[0].split('.')[0]+'.png')
+            plt.savefig('./gradcam_misc/kgpt/virus_vs_covid/virus_viz/' +
+                        fName[0].split('.')[0]+'.png')
             # plt.savefig('./gradcam_misc/rsna_jun21/marl_viz_normal/' +
             #             fName[0].split('.')[0]+'.png')
             # plt.savefig('./gradcam_misc/bimcv_stage2/raw_unthresh_rerun1/viz_original/'
@@ -160,7 +161,7 @@ if __name__ == '__main__':
             # np.save('./gradcam_misc/bimcv_stage2/raw_unthresh_val_rerun/pneumonia/'
             #         + model_name+'_' + fName[0].split('.')[0]
             #         + '.npy', attr_map)
-            np.save('./gradcam_misc/rsna_jun21/marl_raw_normal/'
+            np.save('./gradcam_misc/kgpt/virus_vs_covid/virus_raw/'
                     + fName[0].split('.')[0] + '.npy', attr_map)
             # np.save('./gradcam_misc/rsna_march_21/guided_thresholded/'
             #         'raw_thresh80/resnet1/' + fName[0].split('.')[0]
@@ -173,7 +174,7 @@ if __name__ == '__main__':
             #                                   title="Overlayed Attributions")
             # pltObj[0].savefig('./gradcam_misc/rsna_march_21/resnet_noLungSeg/'
             #                   + fName[0].split('.')[0] + '.png')
-            # plt.close()
+            plt.close()
             # plt.imshow(X.permute(0,2,3,1)[0,:,:,:].detach().cpu().numpy()
             # .astype('uint8'))
             # plt.show()
